@@ -19,6 +19,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Create SPA stub
+        run: mkdir -p internal/web/static/spa && touch internal/web/static/spa/.gitkeep
+
       - name: Run tests
         run: go test ./... -v -count=1
 
