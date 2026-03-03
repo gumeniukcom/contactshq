@@ -1,0 +1,49 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+
+# Test
+*.test
+*.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# App
+contactshq
+server
+contactshq.db
+backups/
+configs/config.yaml
+
+# Frontend
+web/node_modules/
+web/tsconfig.tsbuildinfo
+web/tsconfig.node.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+internal/web/static/spa/*
+!internal/web/static/spa/.gitkeep
+/contactshq.db-shm
+/contactshq.db-wal
+
+# Dev tools
+.claude/
+.serena/

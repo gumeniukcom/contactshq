@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS user_backup_settings (
+    user_id    TEXT    PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    schedule   TEXT    NOT NULL DEFAULT '0 2 * * *',
+    retention  INTEGER NOT NULL DEFAULT 7,
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    compress   INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

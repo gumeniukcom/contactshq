@@ -1,0 +1,1 @@
+ALTER TABLE sync_states ADD COLUMN base_vcard TEXT NOT NULL DEFAULT '';

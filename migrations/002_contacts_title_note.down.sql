@@ -1,0 +1,2 @@
+ALTER TABLE contacts DROP COLUMN title;
+ALTER TABLE contacts DROP COLUMN note;

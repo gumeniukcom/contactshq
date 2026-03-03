@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS pipeline_steps;
+DROP TABLE IF EXISTS pipelines;
+DROP TABLE IF EXISTS sync_states;
+DROP TABLE IF EXISTS contacts;
+DROP TABLE IF EXISTS address_books;
+DROP TABLE IF EXISTS users;

@@ -1,0 +1,87 @@
+version: 2
+
+before:
+  hooks:
+    - make build-frontend
+
+builds:
+  - id: contactshq
+    main: ./cmd/server
+    binary: contactshq
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.Version={{.Version}} -X main.BuildTime={{.Date}}
+
+archives:
+  - id: contactshq
+    builds:
+      - contactshq
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - configs/config.example.yaml
+      - migrations/
+      - docker-compose.yml
+      - README.md
+      - LICENSE
+
+dockers:
+  - id: contactshq-amd64
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}-amd64"
+      - "ghcr.io/gumeniukcom/contactshq:latest-amd64"
+    dockerfile: Dockerfile.goreleaser
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title=ContactsHQ"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/gumeniukcom/contactshq"
+      - "--label=org.opencontainers.image.licenses=Elastic-2.0"
+    extra_files:
+      - configs/
+      - migrations/
+
+  - id: contactshq-arm64
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}-arm64"
+      - "ghcr.io/gumeniukcom/contactshq:latest-arm64"
+    dockerfile: Dockerfile.goreleaser
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title=ContactsHQ"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/gumeniukcom/contactshq"
+      - "--label=org.opencontainers.image.licenses=Elastic-2.0"
+    extra_files:
+      - configs/
+      - migrations/
+
+docker_manifests:
+  - name_template: "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}-amd64"
+      - "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}-arm64"
+  - name_template: "ghcr.io/gumeniukcom/contactshq:latest"
+    image_templates:
+      - "ghcr.io/gumeniukcom/contactshq:latest-amd64"
+      - "ghcr.io/gumeniukcom/contactshq:latest-arm64"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^chore"
+      - "^docs"
+      - "^test"
+      - "^ci"
+      - Merge pull request
+      - Merge branch

@@ -1,0 +1,2 @@
+-- SQLite does not support DROP COLUMN before 3.35.0; leaving as no-op.
+-- For PostgreSQL: ALTER TABLE pipeline_steps DROP COLUMN direction;

@@ -1,0 +1,7 @@
+database:
+  driver: "postgres"
+  dsn: "postgres://chq:chq@postgres:5432/contactshq?sslmode=disable"
+
+log:
+  level: "info"
+  format: "json"
