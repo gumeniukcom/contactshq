@@ -28,7 +28,7 @@ Thumbs.db
 
 # App
 contactshq
-server
+/server
 contactshq.db
 backups/
 configs/config.yaml
