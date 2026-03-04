@@ -13,40 +13,8 @@
           <span class="text-sm font-medium text-gray-700">Enable scheduled backups</span>
         </label>
 
-        <!-- Schedule presets -->
         <div v-if="settings.enabled" class="space-y-3">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Schedule</label>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="preset in schedulePresets"
-                :key="preset.value"
-                @click="applyPreset(preset)"
-                class="px-3 py-1.5 text-xs font-medium rounded-full border transition-colors"
-                :class="
-                  activePreset === preset.value
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400'
-                "
-              >
-                {{ preset.label }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Custom cron input -->
-          <div v-if="activePreset === 'custom'" class="mt-2">
-            <label class="block text-xs font-medium text-gray-500 mb-1">
-              Cron expression
-              <span class="text-gray-400 font-normal ml-1">e.g. 0 2 * * * (daily at 2 AM)</span>
-            </label>
-            <input
-              v-model="settings.schedule"
-              type="text"
-              placeholder="0 2 * * *"
-              class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
-            />
-          </div>
+          <ScheduleInput v-model="settings.schedule" :presets="BACKUP_PRESETS" label="Schedule" />
 
           <!-- Retention -->
           <div class="flex items-center gap-3">
@@ -187,6 +155,8 @@ import type { BackupInfo, BackupSettings, RestoreResult } from '@/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppTable from '@/components/ui/AppTable.vue'
+import ScheduleInput from '@/components/ui/ScheduleInput.vue'
+import { BACKUP_PRESETS } from '@/utils/cron'
 
 // ── Backups list ───────────────────────────────────────────────────────────
 const backups = ref<BackupInfo[]>([])
@@ -290,35 +260,10 @@ const settings = ref<BackupSettings>({
 const savingSettings = ref(false)
 const settingsSaved = ref(false)
 
-interface Preset { label: string; value: string }
-
-const schedulePresets: Preset[] = [
-  { label: 'Daily at 2 AM',           value: '0 2 * * *' },
-  { label: 'Daily at midnight',        value: '0 0 * * *' },
-  { label: 'Weekly (Sun 2 AM)',        value: '0 2 * * 0' },
-  { label: 'Monthly (1st at 2 AM)',    value: '0 2 1 * *' },
-  { label: 'Custom',                   value: 'custom' },
-]
-
-const activePreset = ref('0 2 * * *')
-
-function applyPreset(preset: Preset) {
-  activePreset.value = preset.value
-  if (preset.value !== 'custom') {
-    settings.value.schedule = preset.value
-  }
-}
-
-function syncActivePreset(schedule: string) {
-  const match = schedulePresets.find(p => p.value === schedule && p.value !== 'custom')
-  activePreset.value = match ? match.value : 'custom'
-}
-
 async function loadSettings() {
   try {
     const { data } = await getBackupSettings()
     settings.value = data
-    syncActivePreset(data.schedule)
   } catch {
     // keep defaults
   }

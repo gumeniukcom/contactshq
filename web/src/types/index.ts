@@ -342,3 +342,8 @@ export interface UpdateProfileInput {
 export interface UpdateRoleInput {
   role: string
 }
+
+export interface DedupSettings {
+  schedule: string
+  enabled: boolean
+}

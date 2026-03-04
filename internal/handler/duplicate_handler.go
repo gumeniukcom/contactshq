@@ -2,25 +2,37 @@ package handler
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
 	"github.com/gumeniukcom/contactshq/internal/service"
+	"github.com/gumeniukcom/contactshq/internal/worker"
 )
 
 type DuplicateHandler struct {
-	detector *service.DuplicateDetector
-	merger   *service.MergeService
-	dupRepo  repository.PotentialDuplicateRepository
+	detector         *service.DuplicateDetector
+	merger           *service.MergeService
+	dupRepo          repository.PotentialDuplicateRepository
+	dedupSettingsRepo repository.UserDedupSettingsRepository
+	scheduler        *worker.Scheduler
 }
 
 func NewDuplicateHandler(
 	detector *service.DuplicateDetector,
 	merger *service.MergeService,
 	dupRepo repository.PotentialDuplicateRepository,
+	dedupSettingsRepo repository.UserDedupSettingsRepository,
+	scheduler *worker.Scheduler,
 ) *DuplicateHandler {
-	return &DuplicateHandler{detector: detector, merger: merger, dupRepo: dupRepo}
+	return &DuplicateHandler{
+		detector:          detector,
+		merger:            merger,
+		dupRepo:           dupRepo,
+		dedupSettingsRepo: dedupSettingsRepo,
+		scheduler:         scheduler,
+	}
 }
 
 // List returns paginated potential duplicates for the authenticated user.
@@ -31,6 +43,9 @@ func (h *DuplicateHandler) List(c *fiber.Ctx) error {
 	offset, _ := strconv.Atoi(c.Query("offset", "0"))
 	if limit <= 0 || limit > 100 {
 		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
 	dups, total, err := h.dupRepo.ListByUser(c.Context(), userID, status, limit, offset)
@@ -110,4 +125,61 @@ func (h *DuplicateHandler) Merge(c *fiber.Ctx) error {
 		}
 	}
 	return c.JSON(merged)
+}
+
+// GetSettings returns the dedup schedule settings for the authenticated user.
+func (h *DuplicateHandler) GetSettings(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	s, err := h.dedupSettingsRepo.Get(c.Context(), userID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to fetch settings"})
+	}
+	if s == nil {
+		return c.JSON(domain.UserDedupSettings{
+			UserID:   userID,
+			Schedule: "0 2 * * *",
+			Enabled:  false,
+		})
+	}
+	return c.JSON(s)
+}
+
+// SaveSettings upserts dedup schedule settings and updates the scheduler.
+func (h *DuplicateHandler) SaveSettings(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	var input struct {
+		Schedule string `json:"schedule"`
+		Enabled  bool   `json:"enabled"`
+	}
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if input.Enabled && input.Schedule != "" {
+		if err := worker.ValidateCron(input.Schedule); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid cron expression"})
+		}
+	}
+
+	s := &domain.UserDedupSettings{
+		UserID:    userID,
+		Schedule:  input.Schedule,
+		Enabled:   input.Enabled,
+		UpdatedAt: time.Now(),
+	}
+	if err := h.dedupSettingsRepo.Upsert(c.Context(), s); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to save settings"})
+	}
+
+	if h.scheduler != nil {
+		if s.Enabled && s.Schedule != "" {
+			h.scheduler.ReregisterDedupForUser(s.Schedule, userID)
+		} else {
+			h.scheduler.RemoveDedupForUser(userID)
+		}
+	}
+
+	return c.JSON(s)
 }

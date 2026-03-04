@@ -65,6 +65,7 @@ func main() {
 	dupRepo := repository.NewBunPotentialDuplicateRepository(db)
 	pipelineRepo := repository.NewBunPipelineRepository(db)
 	backupSettingsRepo := repository.NewBunUserBackupSettingsRepository(db)
+	dedupSettingsRepo := repository.NewBunUserDedupSettingsRepository(db)
 	providerConnRepo := repository.NewBunProviderConnectionRepository(db)
 
 	// Services
@@ -91,6 +92,7 @@ func main() {
 	gWorker.Register("pipeline", jobs.NewPipelineJobHandler(orchestrator, pipelineRepo, logger).Handle)
 	gWorker.Register("backup", jobs.NewBackupJobHandler(backupService, logger).Handle)
 	gWorker.Register("sync", jobs.NewSyncJobHandler(syncEngine, contactRepo, abRepo, providerConnRepo, logger).Handle)
+	gWorker.Register("dedup", jobs.NewDedupJobHandler(dupDetector, logger).Handle)
 	if err := gWorker.Start(ctx); err != nil {
 		logger.Fatal("failed to start worker", zap.Error(err))
 	}
@@ -124,6 +126,18 @@ func main() {
 			}
 		}
 	}
+	// Load dedup schedules
+	dedupSettings, err := dedupSettingsRepo.ListAll(ctx)
+	if err != nil {
+		logger.Warn("failed to load dedup settings for scheduler", zap.Error(err))
+	} else {
+		for _, ds := range dedupSettings {
+			if ds.Enabled && ds.Schedule != "" {
+				sched.RegisterDedupForUser(ds.Schedule, ds.UserID)
+			}
+		}
+	}
+
 	sched.Start()
 	defer sched.Stop()
 
@@ -158,6 +172,7 @@ func main() {
 		DupRepo:          dupRepo,
 		DupDetector:      dupDetector,
 		MergeService:     mergeService,
+		DedupSettingsRepo: dedupSettingsRepo,
 		Scheduler:        sched,
 		GoogleOAuth:      googleOAuth,
 	})

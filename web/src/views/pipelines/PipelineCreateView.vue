@@ -11,7 +11,7 @@
           <input type="checkbox" v-model="form.enabled" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
         </div>
 
-        <AppInput v-model="form.schedule" label="Schedule (cron)" placeholder="0 */6 * * *" id="schedule" />
+        <ScheduleInput v-model="form.schedule" :presets="SYNC_PRESETS" label="Schedule" />
 
         <div class="border-t border-gray-200 pt-4">
           <div class="flex items-center justify-between mb-3">
@@ -119,8 +119,9 @@ import { createPipeline } from '@/api/pipelines'
 import { listCredentials } from '@/api/credentials'
 import type { PipelineStep, Credential } from '@/types'
 import AppCard from '@/components/ui/AppCard.vue'
-import AppInput from '@/components/ui/AppInput.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import ScheduleInput from '@/components/ui/ScheduleInput.vue'
+import { SYNC_PRESETS } from '@/utils/cron'
 import CardDAVStepConfig from './CardDAVStepConfig.vue'
 import GoogleStepConfig from './GoogleStepConfig.vue'
 

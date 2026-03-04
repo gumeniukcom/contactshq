@@ -1,5 +1,5 @@
 import client from './client'
-import type { Contact, CreateContactInput, PotentialDuplicate, MergeInput } from '@/types'
+import type { Contact, CreateContactInput, PotentialDuplicate, MergeInput, DedupSettings } from '@/types'
 
 export interface ListContactsParams {
   limit?: number
@@ -75,3 +75,10 @@ export function mergeContacts(data: MergeInput) {
   return client.post<Contact>('/contacts/merge', data)
 }
 
+export function getDedupSettings() {
+  return client.get<DedupSettings>('/contacts/duplicates/settings')
+}
+
+export function saveDedupSettings(data: DedupSettings) {
+  return client.put<DedupSettings>('/contacts/duplicates/settings', data)
+}

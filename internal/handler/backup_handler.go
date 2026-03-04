@@ -84,6 +84,12 @@ func (h *BackupHandler) SaveSettings(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid input"})
 	}
 
+	if input.Enabled && input.Schedule != "" {
+		if err := worker.ValidateCron(input.Schedule); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid cron expression"})
+		}
+	}
+
 	if err := h.backupService.SaveSettings(c.Context(), userID, &input); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to save settings"})
 	}

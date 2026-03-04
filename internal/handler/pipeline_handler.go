@@ -7,19 +7,22 @@ import (
 	"github.com/gumeniukcom/contactshq/internal/repository"
 	"github.com/gumeniukcom/contactshq/internal/service"
 	chqsync "github.com/gumeniukcom/contactshq/internal/sync"
+	"github.com/gumeniukcom/contactshq/internal/worker"
 )
 
 type PipelineHandler struct {
 	pipelineService *service.PipelineService
 	orchestrator    *chqsync.PipelineOrchestrator
 	syncRunRepo     repository.SyncRunRepository
+	scheduler       *worker.Scheduler
 }
 
-func NewPipelineHandler(pipelineService *service.PipelineService, orchestrator *chqsync.PipelineOrchestrator, syncRunRepo repository.SyncRunRepository) *PipelineHandler {
+func NewPipelineHandler(pipelineService *service.PipelineService, orchestrator *chqsync.PipelineOrchestrator, syncRunRepo repository.SyncRunRepository, scheduler *worker.Scheduler) *PipelineHandler {
 	return &PipelineHandler{
 		pipelineService: pipelineService,
 		orchestrator:    orchestrator,
 		syncRunRepo:     syncRunRepo,
+		scheduler:       scheduler,
 	}
 }
 
@@ -45,10 +48,19 @@ func (h *PipelineHandler) Create(c *fiber.Ctx) error {
 	if input.Name == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is required"})
 	}
+	if input.Schedule != "" {
+		if err := worker.ValidateCron(input.Schedule); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid cron expression"})
+		}
+	}
 
 	pipeline, err := h.pipelineService.Create(c.Context(), userID, input)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create pipeline"})
+	}
+
+	if h.scheduler != nil {
+		h.scheduler.RegisterPipelineJob(pipeline)
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(pipeline)
@@ -78,12 +90,22 @@ func (h *PipelineHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
+	if input.Schedule != "" {
+		if err := worker.ValidateCron(input.Schedule); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid cron expression"})
+		}
+	}
+
 	pipeline, err := h.pipelineService.Update(c.Context(), userID, pipelineID, input)
 	if err != nil {
 		if errors.Is(err, service.ErrPipelineNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "pipeline not found"})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update pipeline"})
+	}
+
+	if h.scheduler != nil {
+		h.scheduler.ReregisterPipelineJob(pipeline)
 	}
 
 	return c.JSON(pipeline)
@@ -99,6 +121,10 @@ func (h *PipelineHandler) Delete(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "pipeline not found"})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to delete pipeline"})
+	}
+
+	if h.scheduler != nil {
+		h.scheduler.RemovePipelineJob(pipelineID)
 	}
 
 	return c.JSON(fiber.Map{"message": "pipeline deleted"})

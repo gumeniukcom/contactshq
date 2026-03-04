@@ -1,6 +1,29 @@
 <template>
-  <div class="max-w-3xl">
-    <div class="flex items-center justify-between mb-6">
+  <div class="max-w-3xl space-y-6">
+    <!-- Dedup Schedule Settings -->
+    <AppCard>
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Automatic Detection</h2>
+      <div class="space-y-4">
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" v-model="dedupSettings.enabled" class="h-4 w-4 text-indigo-600 rounded" />
+          <span class="text-sm font-medium text-gray-700">Enable scheduled duplicate detection</span>
+        </label>
+
+        <ScheduleInput
+          v-if="dedupSettings.enabled"
+          v-model="dedupSettings.schedule"
+          :presets="DEDUP_PRESETS"
+          label="Schedule"
+        />
+      </div>
+
+      <div class="mt-5 flex items-center gap-3">
+        <AppButton :loading="savingDedupSettings" @click="handleSaveDedupSettings">Save Settings</AppButton>
+        <span v-if="dedupSettingsSaved" class="text-sm text-green-600">Settings saved</span>
+      </div>
+    </AppCard>
+
+    <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold text-gray-900">
         Potential Duplicates
         <span v-if="total > 0" class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
@@ -100,9 +123,12 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, defineComponent, h } from 'vue'
 import { RouterLink } from 'vue-router'
-import { listDuplicates, dismissDuplicate, detectDuplicates, mergeContacts } from '@/api/contacts'
-import type { PotentialDuplicate, Contact } from '@/types'
+import { listDuplicates, dismissDuplicate, detectDuplicates, mergeContacts, getDedupSettings, saveDedupSettings } from '@/api/contacts'
+import type { PotentialDuplicate, Contact, DedupSettings } from '@/types'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppCard from '@/components/ui/AppCard.vue'
+import ScheduleInput from '@/components/ui/ScheduleInput.vue'
+import { DEDUP_PRESETS } from '@/utils/cron'
 
 // Inline ContactSummary component to avoid extra file
 const ContactSummary = defineComponent({
@@ -179,5 +205,34 @@ function parsedReasons(dup: PotentialDuplicate): string[] {
   try { return JSON.parse(dup.match_reasons) as string[] } catch { return [] }
 }
 
-onMounted(fetchDuplicates)
+// ── Dedup Schedule Settings ────────────────────────────────────────────────
+const dedupSettings = ref<DedupSettings>({ schedule: '0 2 * * *', enabled: false })
+const savingDedupSettings = ref(false)
+const dedupSettingsSaved = ref(false)
+
+async function loadDedupSettings() {
+  try {
+    const { data } = await getDedupSettings()
+    dedupSettings.value = { schedule: data.schedule, enabled: data.enabled }
+  } catch {
+    // keep defaults
+  }
+}
+
+async function handleSaveDedupSettings() {
+  savingDedupSettings.value = true
+  dedupSettingsSaved.value = false
+  try {
+    await saveDedupSettings(dedupSettings.value)
+    dedupSettingsSaved.value = true
+    setTimeout(() => { dedupSettingsSaved.value = false }, 3000)
+  } finally {
+    savingDedupSettings.value = false
+  }
+}
+
+onMounted(() => {
+  fetchDuplicates()
+  loadDedupSettings()
+})
 </script>

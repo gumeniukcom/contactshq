@@ -29,6 +29,7 @@ type Services struct {
 	DupRepo          repository.PotentialDuplicateRepository
 	DupDetector      *service.DuplicateDetector
 	MergeService     *service.MergeService
+	DedupSettingsRepo repository.UserDedupSettingsRepository
 	Scheduler        *worker.Scheduler
 	GoogleOAuth      *service.GoogleOAuthService
 }
@@ -74,9 +75,11 @@ func Register(app *fiber.App, svc Services) {
 
 	// Duplicate detection & merge (before /:id to avoid shadowing)
 	if svc.DupDetector != nil && svc.MergeService != nil && svc.DupRepo != nil {
-		dupHandler := NewDuplicateHandler(svc.DupDetector, svc.MergeService, svc.DupRepo)
+		dupHandler := NewDuplicateHandler(svc.DupDetector, svc.MergeService, svc.DupRepo, svc.DedupSettingsRepo, svc.Scheduler)
 		contacts.Get("/duplicates", dupHandler.List)
 		contacts.Get("/duplicates/count", dupHandler.Count)
+		contacts.Get("/duplicates/settings", dupHandler.GetSettings)
+		contacts.Put("/duplicates/settings", dupHandler.SaveSettings)
 		contacts.Post("/duplicates/detect", dupHandler.Detect)
 		contacts.Post("/duplicates/:id/dismiss", dupHandler.Dismiss)
 		contacts.Post("/merge", dupHandler.Merge)
@@ -143,7 +146,7 @@ func Register(app *fiber.App, svc Services) {
 
 	// Pipelines
 	if svc.Pipeline != nil && svc.Orchestrator != nil {
-		pipelineHandler := NewPipelineHandler(svc.Pipeline, svc.Orchestrator, svc.SyncRunRepo)
+		pipelineHandler := NewPipelineHandler(svc.Pipeline, svc.Orchestrator, svc.SyncRunRepo, svc.Scheduler)
 		pipelines := protected.Group("/pipelines")
 		pipelines.Get("/", pipelineHandler.List)
 		pipelines.Post("/", pipelineHandler.Create)

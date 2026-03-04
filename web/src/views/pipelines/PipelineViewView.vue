@@ -5,7 +5,7 @@
       <div>
         <h1 class="text-2xl font-bold text-gray-900">{{ pipeline?.name ?? '…' }}</h1>
         <p v-if="pipeline" class="mt-1 text-sm text-gray-500">
-          {{ pipeline.schedule || 'No schedule' }} ·
+          {{ pipeline.schedule ? humanizeCron(pipeline.schedule) : 'No schedule' }} ·
           <AppBadge :color="pipeline.enabled ? 'green' : 'gray'">
             {{ pipeline.enabled ? 'Enabled' : 'Disabled' }}
           </AppBadge>
@@ -129,6 +129,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Pipeline, SyncRun } from '@/types'
 import { getPipeline, triggerPipeline, listPipelineRuns } from '@/api/pipelines'
+import { humanizeCron } from '@/utils/cron'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'

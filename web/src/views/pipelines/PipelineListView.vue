@@ -22,7 +22,7 @@
                 {{ p.enabled ? 'Enabled' : 'Disabled' }}
               </AppBadge>
             </td>
-            <td class="px-6 py-4 text-sm text-gray-500">{{ p.schedule || '—' }}</td>
+            <td class="px-6 py-4 text-sm text-gray-500">{{ p.schedule ? humanizeCron(p.schedule) : '—' }}</td>
             <td class="px-6 py-4 text-sm text-right space-x-2 whitespace-nowrap">
               <AppButton size="sm" variant="secondary" @click.stop="handleTrigger(p.id)">
                 Trigger
@@ -54,6 +54,7 @@
 import { ref, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { listPipelines, deletePipeline, triggerPipeline } from '@/api/pipelines'
+import { humanizeCron } from '@/utils/cron'
 import type { Pipeline } from '@/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'

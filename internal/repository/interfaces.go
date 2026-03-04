@@ -112,6 +112,12 @@ type PotentialDuplicateRepository interface {
 	CountPending(ctx context.Context, userID string) (int, error)
 }
 
+type UserDedupSettingsRepository interface {
+	Get(ctx context.Context, userID string) (*domain.UserDedupSettings, error)
+	Upsert(ctx context.Context, s *domain.UserDedupSettings) error
+	ListAll(ctx context.Context) ([]*domain.UserDedupSettings, error)
+}
+
 type SyncConflictRepository interface {
 	Create(ctx context.Context, c *domain.SyncConflict) error
 	GetByID(ctx context.Context, id string) (*domain.SyncConflict, error)

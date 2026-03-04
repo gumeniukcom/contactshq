@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS user_dedup_settings (
+    user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    schedule   TEXT NOT NULL DEFAULT '0 2 * * *',
+    enabled    BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
