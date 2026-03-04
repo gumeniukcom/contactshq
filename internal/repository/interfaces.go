@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/gumeniukcom/contactshq/internal/domain"
 )
@@ -66,6 +67,8 @@ type ProviderConnectionRepository interface {
 	GetByUserAndType(ctx context.Context, userID, providerType string) (*domain.ProviderConnection, error)
 	Update(ctx context.Context, c *domain.ProviderConnection) error
 	Delete(ctx context.Context, id string) error
+	UpdateToken(ctx context.Context, id, accessToken, refreshToken string, expiry *time.Time) error
+	SetConnected(ctx context.Context, id string, connected bool) error
 }
 
 type SyncStateRepository interface {

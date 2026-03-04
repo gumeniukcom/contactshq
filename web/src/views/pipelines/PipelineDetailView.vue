@@ -31,6 +31,7 @@
                 <select v-model="step.source_type" class="block w-full rounded-md border-gray-300 text-sm px-3 py-2 border">
                   <option value="internal">Internal</option>
                   <option value="carddav">CardDAV</option>
+                  <option value="google">Google</option>
                 </select>
               </div>
               <div class="flex-1">
@@ -38,13 +39,14 @@
                 <select v-model="step.dest_type" class="block w-full rounded-md border-gray-300 text-sm px-3 py-2 border">
                   <option value="internal">Internal</option>
                   <option value="carddav">CardDAV</option>
+                  <option value="google">Google</option>
                 </select>
               </div>
               <div class="flex-1">
                 <label class="block text-xs text-gray-500 mb-1">Direction</label>
                 <select v-model="step.direction" class="block w-full rounded-md border-gray-300 text-sm px-3 py-2 border">
-                  <option value="pull">Pull (remote → local)</option>
-                  <option value="push">Push (local → remote)</option>
+                  <option value="pull">Pull (remote -> local)</option>
+                  <option value="push">Push (local -> remote)</option>
                   <option value="bidirectional">Bidirectional</option>
                 </select>
               </div>
@@ -74,12 +76,30 @@
               class="mt-3"
             />
 
+            <GoogleStepConfig
+              v-if="step.source_type === 'google'"
+              :index="i"
+              side="src"
+              v-model="step._gsrc"
+              :credentials="googleCredentials"
+              class="mt-3"
+            />
+
             <CardDAVStepConfig
               v-if="step.dest_type === 'carddav'"
               :index="i"
               side="dst"
               v-model="step._dst"
               :credentials="cardDAVCredentials"
+              class="mt-3"
+            />
+
+            <GoogleStepConfig
+              v-if="step.dest_type === 'google'"
+              :index="i"
+              side="dst"
+              v-model="step._gdst"
+              :credentials="googleCredentials"
               class="mt-3"
             />
           </div>
@@ -104,7 +124,9 @@ import AppCard from '@/components/ui/AppCard.vue'
 import AppInput from '@/components/ui/AppInput.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CardDAVStepConfig from './CardDAVStepConfig.vue'
+import GoogleStepConfig from './GoogleStepConfig.vue'
 import type { CardDAVConfig } from './CardDAVStepConfig.vue'
+import type { GoogleConfig } from './GoogleStepConfig.vue'
 
 interface StepFormItem {
   source_type: string
@@ -113,6 +135,8 @@ interface StepFormItem {
   direction: string
   _src: CardDAVConfig
   _dst: CardDAVConfig
+  _gsrc: GoogleConfig
+  _gdst: GoogleConfig
 }
 
 const route = useRoute()
@@ -123,6 +147,7 @@ const loadingPipeline = ref(true)
 const saving = ref(false)
 const triggering = ref(false)
 const cardDAVCredentials = ref<Credential[]>([])
+const googleCredentials = ref<Credential[]>([])
 
 const form = reactive({
   name: '',
@@ -133,6 +158,10 @@ const form = reactive({
 
 function emptyCardDAV(): CardDAVConfig {
   return { credential_id: '', endpoint: '', username: '', password: '', skip_tls_verify: false }
+}
+
+function emptyGoogle(): GoogleConfig {
+  return { credential_id: '' }
 }
 
 function parseCardDAV(configJSON?: string): CardDAVConfig {
@@ -151,6 +180,16 @@ function parseCardDAV(configJSON?: string): CardDAVConfig {
   }
 }
 
+function parseGoogle(configJSON?: string): GoogleConfig {
+  if (!configJSON || configJSON === '{}') return emptyGoogle()
+  try {
+    const parsed = JSON.parse(configJSON)
+    return { credential_id: parsed.credential_id ?? '' }
+  } catch {
+    return emptyGoogle()
+  }
+}
+
 function stepToFormItem(step: PipelineStep): StepFormItem {
   return {
     source_type: step.source_type,
@@ -159,11 +198,16 @@ function stepToFormItem(step: PipelineStep): StepFormItem {
     direction: step.direction ?? 'pull',
     _src: parseCardDAV(step.source_config),
     _dst: parseCardDAV(step.dest_config),
+    _gsrc: parseGoogle(step.source_config),
+    _gdst: parseGoogle(step.dest_config),
   }
 }
 
 function addStep() {
-  form.steps.push({ source_type: 'internal', dest_type: 'carddav', conflict_mode: 'auto', direction: 'pull', _src: emptyCardDAV(), _dst: emptyCardDAV() })
+  form.steps.push({
+    source_type: 'internal', dest_type: 'carddav', conflict_mode: 'auto', direction: 'pull',
+    _src: emptyCardDAV(), _dst: emptyCardDAV(), _gsrc: emptyGoogle(), _gdst: emptyGoogle(),
+  })
 }
 
 function buildStepConfig(cfg: CardDAVConfig): string {
@@ -178,22 +222,37 @@ function buildStepConfig(cfg: CardDAVConfig): string {
   })
 }
 
+function buildGoogleConfig(cfg: GoogleConfig): string {
+  return JSON.stringify({ credential_id: cfg.credential_id })
+}
+
 function buildSteps(): PipelineStep[] {
-  return form.steps.map(s => ({
-    source_type: s.source_type,
-    dest_type: s.dest_type,
-    conflict_mode: s.conflict_mode as PipelineStep['conflict_mode'],
-    direction: s.direction as PipelineStep['direction'],
-    source_config: s.source_type === 'carddav' ? buildStepConfig(s._src) : '{}',
-    dest_config: s.dest_type === 'carddav' ? buildStepConfig(s._dst) : '{}',
-  }))
+  return form.steps.map(s => {
+    let source_config = '{}'
+    if (s.source_type === 'carddav') source_config = buildStepConfig(s._src)
+    else if (s.source_type === 'google') source_config = buildGoogleConfig(s._gsrc)
+
+    let dest_config = '{}'
+    if (s.dest_type === 'carddav') dest_config = buildStepConfig(s._dst)
+    else if (s.dest_type === 'google') dest_config = buildGoogleConfig(s._gdst)
+
+    return {
+      source_type: s.source_type,
+      dest_type: s.dest_type,
+      conflict_mode: s.conflict_mode as PipelineStep['conflict_mode'],
+      direction: s.direction as PipelineStep['direction'],
+      source_config,
+      dest_config,
+    }
+  })
 }
 
 onMounted(async () => {
   try {
-    const [pipelineRes, credRes] = await Promise.allSettled([
+    const [pipelineRes, cardDAVRes, googleRes] = await Promise.allSettled([
       getPipeline(id),
       listCredentials({ type: 'carddav' }),
+      listCredentials({ type: 'google' }),
     ])
     if (pipelineRes.status === 'fulfilled') {
       const data = pipelineRes.value.data
@@ -202,8 +261,11 @@ onMounted(async () => {
       form.schedule = data.schedule
       form.steps = (data.steps ?? []).map(stepToFormItem)
     }
-    if (credRes.status === 'fulfilled') {
-      cardDAVCredentials.value = credRes.value.data.credentials ?? []
+    if (cardDAVRes.status === 'fulfilled') {
+      cardDAVCredentials.value = cardDAVRes.value.data.credentials ?? []
+    }
+    if (googleRes.status === 'fulfilled') {
+      googleCredentials.value = googleRes.value.data.credentials ?? []
     }
   } finally {
     loadingPipeline.value = false

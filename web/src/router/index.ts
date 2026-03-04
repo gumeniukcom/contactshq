@@ -105,6 +105,11 @@ const router = createRouter({
           component: () => import('@/views/settings/PasswordView.vue'),
         },
         {
+          path: 'settings/google',
+          name: 'google-settings',
+          component: () => import('@/views/settings/GoogleSettingsView.vue'),
+        },
+        {
           path: 'admin/users',
           name: 'admin-users',
           meta: { requiresAdmin: true },

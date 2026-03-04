@@ -37,6 +37,7 @@
         <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Settings</p>
         <NavLink to="/settings/profile" icon="user">Profile</NavLink>
         <NavLink to="/settings/password" icon="lock">Password</NavLink>
+        <NavLink to="/settings/google" icon="cloud">Google</NavLink>
       </div>
 
       <div v-if="auth.isAdmin" class="pt-4 mt-4 border-t border-gray-200">

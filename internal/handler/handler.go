@@ -30,6 +30,7 @@ type Services struct {
 	DupDetector      *service.DuplicateDetector
 	MergeService     *service.MergeService
 	Scheduler        *worker.Scheduler
+	GoogleOAuth      *service.GoogleOAuthService
 }
 
 func Register(app *fiber.App, svc Services) {
@@ -47,6 +48,12 @@ func Register(app *fiber.App, svc Services) {
 	auth.Post("/register", authHandler.Register)
 	auth.Post("/login", authHandler.Login)
 	auth.Post("/refresh", authHandler.Refresh)
+
+	// Google OAuth2 callback (public — browser redirect from Google)
+	if svc.GoogleOAuth != nil {
+		googleHandler := NewGoogleHandler(svc.GoogleOAuth, svc.ProviderConnRepo)
+		auth.Get("/google/callback", googleHandler.Callback)
+	}
 
 	// Protected routes
 	protected := api.Use(middleware.JWTAuth(svc.Auth))
@@ -107,6 +114,15 @@ func Register(app *fiber.App, svc Services) {
 	creds.Get("/:id", credHandler.Get)
 	creds.Put("/:id", credHandler.Update)
 	creds.Delete("/:id", credHandler.Delete)
+
+	// Google OAuth2 (protected)
+	if svc.GoogleOAuth != nil {
+		googleHandler := NewGoogleHandler(svc.GoogleOAuth, svc.ProviderConnRepo)
+		googleGroup := protected.Group("/auth/google")
+		googleGroup.Post("/init", googleHandler.InitAuth)
+		googleGroup.Get("/status", googleHandler.Status)
+		googleGroup.Delete("/disconnect", googleHandler.Disconnect)
+	}
 
 	// Sync
 	syncGroup := protected.Group("/sync")

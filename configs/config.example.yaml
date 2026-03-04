@@ -13,9 +13,10 @@ auth:
   refresh_ttl: "720h"
 
 google:
+  # Optional global defaults. Users provide their own credentials via the UI.
   client_id: ""
   client_secret: ""
-  redirect_url: "http://localhost:8080/api/v1/sync/google/callback"
+  redirect_url: "http://localhost:8080/api/v1/auth/google/callback"
 
 carddav:
   path_prefix: "/dav"

@@ -30,6 +30,56 @@ func (t *basicAuthTransport) RoundTrip(req *http.Request) (*http.Response, error
 	return base.RoundTrip(req)
 }
 
+// bearerAuthTransport injects an OAuth2 Bearer token into every request.
+// Used for Google CardDAV and other OAuth2-based CardDAV servers.
+type bearerAuthTransport struct {
+	tokenSource oauth2TokenSource
+	base        http.RoundTripper
+}
+
+// oauth2TokenSource is a minimal interface matching oauth2.TokenSource.
+type oauth2TokenSource interface {
+	Token() (*oauth2Token, error)
+}
+
+// oauth2Token holds a bearer access token (avoids importing golang.org/x/oauth2 directly).
+type oauth2Token struct {
+	AccessToken string
+}
+
+func (t *bearerAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	token, err := t.tokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("get bearer token: %w", err)
+	}
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(req)
+}
+
+// NewCardDAVClientProviderWithHTTPClient creates a CardDAV provider with a pre-configured HTTP client.
+// This is used for OAuth2-authenticated CardDAV servers (e.g., Google CardDAV).
+func NewCardDAVClientProviderWithHTTPClient(endpoint string, httpClient *http.Client) (*CardDAVClientProvider, error) {
+	resolvedEndpoint, abPath, err := discoverAddressBook(httpClient, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := carddav.NewClient(httpClient, resolvedEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("create carddav client: %w", err)
+	}
+
+	return &CardDAVClientProvider{
+		client: client,
+		abPath: abPath,
+	}, nil
+}
+
 type CardDAVClientProvider struct {
 	client *carddav.Client
 	abPath string

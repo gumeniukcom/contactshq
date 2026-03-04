@@ -4,11 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
 	"go.uber.org/zap"
 )
+
+// OAuthHTTPClientProvider returns an authenticated HTTP client for a provider connection.
+// Implemented by service.GoogleOAuthService.
+type OAuthHTTPClientProvider interface {
+	GetHTTPClient(ctx context.Context, conn *domain.ProviderConnection) (*http.Client, error)
+}
 
 type PipelineOrchestrator struct {
 	engine       *Engine
@@ -16,6 +23,7 @@ type PipelineOrchestrator struct {
 	abRepo       repository.AddressBookRepository
 	pipelineRepo repository.PipelineRepository
 	credRepo     repository.ProviderConnectionRepository // optional: resolves credential_id refs
+	googleOAuth  OAuthHTTPClientProvider                 // optional: for Google provider
 	logger       *zap.Logger
 }
 
@@ -25,6 +33,7 @@ func NewPipelineOrchestrator(
 	abRepo repository.AddressBookRepository,
 	pipelineRepo repository.PipelineRepository,
 	credRepo repository.ProviderConnectionRepository,
+	googleOAuth OAuthHTTPClientProvider,
 	logger *zap.Logger,
 ) *PipelineOrchestrator {
 	return &PipelineOrchestrator{
@@ -33,6 +42,7 @@ func NewPipelineOrchestrator(
 		abRepo:       abRepo,
 		pipelineRepo: pipelineRepo,
 		credRepo:     credRepo,
+		googleOAuth:  googleOAuth,
 		logger:       logger,
 	}
 }
@@ -125,6 +135,14 @@ func (o *PipelineOrchestrator) createProvider(ctx context.Context, userID, provi
 			if err != nil || cred == nil {
 				return nil, fmt.Errorf("credential %s not found", cfg.CredentialID)
 			}
+			// OAuth2 credential → use authenticated HTTP client for CardDAV
+			if cred.AccessToken != "" && o.googleOAuth != nil {
+				httpClient, err := o.googleOAuth.GetHTTPClient(ctx, cred)
+				if err != nil {
+					return nil, fmt.Errorf("carddav oauth http client: %w", err)
+				}
+				return NewCardDAVClientProviderWithHTTPClient(cred.Endpoint, httpClient)
+			}
 			cfg.Endpoint = cred.Endpoint
 			cfg.Username = cred.Username
 			cfg.Password = cred.Password
@@ -137,7 +155,21 @@ func (o *PipelineOrchestrator) createProvider(ctx context.Context, userID, provi
 		if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 			return nil, fmt.Errorf("parse google config: %w", err)
 		}
-		return NewGoogleProvider(cfg.AccessToken), nil
+		if o.googleOAuth == nil {
+			return nil, fmt.Errorf("google oauth service not configured")
+		}
+		if cfg.CredentialID == "" {
+			return nil, fmt.Errorf("google provider requires credential_id")
+		}
+		conn, err := o.credRepo.GetByID(ctx, cfg.CredentialID)
+		if err != nil || conn == nil {
+			return nil, fmt.Errorf("google credential %s not found", cfg.CredentialID)
+		}
+		httpClient, err := o.googleOAuth.GetHTTPClient(ctx, conn)
+		if err != nil {
+			return nil, fmt.Errorf("google http client: %w", err)
+		}
+		return NewGoogleProviderWithClient(ctx, httpClient, o.logger)
 
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", providerType)

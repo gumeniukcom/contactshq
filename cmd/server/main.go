@@ -79,9 +79,12 @@ func main() {
 	dupDetector := service.NewDuplicateDetector(contactRepo, abRepo, dupRepo, logger)
 	mergeService := service.NewMergeService(contactRepo, abRepo, dupRepo, syncRepo)
 
+	// Google OAuth
+	googleOAuth := service.NewGoogleOAuthService(cfg.Google, providerConnRepo)
+
 	// Sync engine & pipeline orchestrator
 	syncEngine := chqsync.NewEngineWithAllRepos(syncRepo, syncRunRepo, syncConflictRepo, logger)
-	orchestrator := chqsync.NewPipelineOrchestrator(syncEngine, contactRepo, abRepo, pipelineRepo, providerConnRepo, logger)
+	orchestrator := chqsync.NewPipelineOrchestrator(syncEngine, contactRepo, abRepo, pipelineRepo, providerConnRepo, googleOAuth, logger)
 
 	// Worker
 	gWorker := worker.NewGoroutineWorker(4, logger)
@@ -156,6 +159,7 @@ func main() {
 		DupDetector:      dupDetector,
 		MergeService:     mergeService,
 		Scheduler:        sched,
+		GoogleOAuth:      googleOAuth,
 	})
 
 	// CardDAV server

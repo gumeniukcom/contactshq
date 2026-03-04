@@ -1,0 +1,8 @@
+-- SQLite does not support DROP COLUMN; these columns will remain.
+-- For PostgreSQL:
+-- ALTER TABLE provider_connections DROP COLUMN access_token;
+-- ALTER TABLE provider_connections DROP COLUMN refresh_token;
+-- ALTER TABLE provider_connections DROP COLUMN token_expiry;
+-- ALTER TABLE provider_connections DROP COLUMN client_id;
+-- ALTER TABLE provider_connections DROP COLUMN client_secret;
+-- ALTER TABLE provider_connections DROP COLUMN scopes;
