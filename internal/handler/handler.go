@@ -32,6 +32,7 @@ type Services struct {
 	DedupSettingsRepo repository.UserDedupSettingsRepository
 	Scheduler        *worker.Scheduler
 	GoogleOAuth      *service.GoogleOAuthService
+	AppPassword      *service.AppPasswordService
 }
 
 func Register(app *fiber.App, svc Services) {
@@ -118,6 +119,20 @@ func Register(app *fiber.App, svc Services) {
 	creds.Get("/:id", credHandler.Get)
 	creds.Put("/:id", credHandler.Update)
 	creds.Delete("/:id", credHandler.Delete)
+
+	// Setup / profiles
+	profileHandler := NewProfileHandler()
+	setup := protected.Group("/setup")
+	setup.Get("/ios-profile", profileHandler.IOSProfile)
+
+	// App passwords
+	if svc.AppPassword != nil {
+		appPwHandler := NewAppPasswordHandler(svc.AppPassword)
+		appPw := protected.Group("/app-passwords")
+		appPw.Post("/", appPwHandler.Create)
+		appPw.Get("/", appPwHandler.List)
+		appPw.Delete("/:id", appPwHandler.Delete)
+	}
 
 	// Google OAuth2 (protected)
 	if svc.GoogleOAuth != nil {

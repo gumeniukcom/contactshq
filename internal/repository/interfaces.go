@@ -118,6 +118,15 @@ type UserDedupSettingsRepository interface {
 	ListAll(ctx context.Context) ([]*domain.UserDedupSettings, error)
 }
 
+type AppPasswordRepository interface {
+	Create(ctx context.Context, ap *domain.AppPassword) error
+	ListByUser(ctx context.Context, userID string) ([]domain.AppPassword, error)
+	GetByID(ctx context.Context, id string) (*domain.AppPassword, error)
+	Delete(ctx context.Context, id string) error
+	ListAllByUser(ctx context.Context, userID string) ([]domain.AppPassword, error)
+	UpdateLastUsed(ctx context.Context, id string) error
+}
+
 type SyncConflictRepository interface {
 	Create(ctx context.Context, c *domain.SyncConflict) error
 	GetByID(ctx context.Context, id string) (*domain.SyncConflict, error)

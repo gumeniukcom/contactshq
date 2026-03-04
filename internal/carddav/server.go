@@ -1,6 +1,7 @@
 package carddav
 
 import (
+	"context"
 	"encoding/base64"
 	"net/http"
 	"strings"
@@ -11,21 +12,23 @@ import (
 )
 
 type Server struct {
-	handler  *carddav.Handler
-	backend  *Backend
-	userRepo repository.UserRepository
+	handler   *carddav.Handler
+	backend   *Backend
+	userRepo  repository.UserRepository
+	appPwRepo repository.AppPasswordRepository
 }
 
-func NewServer(backend *Backend, userRepo repository.UserRepository, prefix string) *Server {
+func NewServer(backend *Backend, userRepo repository.UserRepository, appPwRepo repository.AppPasswordRepository, prefix string) *Server {
 	handler := &carddav.Handler{
 		Backend: backend,
 		Prefix:  prefix,
 	}
 
 	return &Server{
-		handler:  handler,
-		backend:  backend,
-		userRepo: userRepo,
+		handler:   handler,
+		backend:   backend,
+		userRepo:  userRepo,
+		appPwRepo: appPwRepo,
 	}
 }
 
@@ -59,9 +62,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !verifyArgon2id(password, user.PasswordHash) {
-		w.Header().Set("WWW-Authenticate", `Basic realm="ContactsHQ CardDAV"`)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
+		// Fallback: try app-specific passwords
+		if !s.verifyAppPassword(r.Context(), user.ID, password) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="ContactsHQ CardDAV"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	ctx := WithUserID(r.Context(), user.ID)
@@ -69,6 +75,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(ctx)
 
 	s.handler.ServeHTTP(w, r)
+}
+
+func (s *Server) verifyAppPassword(ctx context.Context, userID, password string) bool {
+	if s.appPwRepo == nil {
+		return false
+	}
+	passwords, err := s.appPwRepo.ListAllByUser(ctx, userID)
+	if err != nil || len(passwords) == 0 {
+		return false
+	}
+	for _, ap := range passwords {
+		if verifyArgon2id(password, ap.PasswordHash) {
+			_ = s.appPwRepo.UpdateLastUsed(ctx, ap.ID)
+			return true
+		}
+	}
+	return false
 }
 
 func verifyArgon2id(password, encodedHash string) bool {

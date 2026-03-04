@@ -96,6 +96,15 @@ auth:
 | `CHQ_AUTH_JWT_SECRET` | JWT signing secret — **change in production** |
 | `CHQ_SERVER_PORT` | HTTP port (default `8080`) |
 
+## Connect your devices
+
+ContactsHQ includes a built-in CardDAV server. Connect your iPhone, iPad, Mac, or Thunderbird to sync contacts automatically.
+
+- Visit `/setup` on your instance for step-by-step instructions
+- In the app, go to **Settings → Connect Devices** for one-tap iOS profile download
+- Use **App Passwords** (Settings → App Passwords) instead of your main password for CardDAV clients
+- HTTPS is required for mobile clients — see [reverse proxy examples](docs/reverse-proxy.md)
+
 ## API
 
 All endpoints are under `/api/v1/`. Authentication uses Bearer JWT tokens.
@@ -144,7 +153,14 @@ DELETE /api/v1/backup/:id
 GET    /api/v1/backup/settings
 PUT    /api/v1/backup/settings
 
+POST   /api/v1/app-passwords
+GET    /api/v1/app-passwords
+DELETE /api/v1/app-passwords/:id
+
+GET    /api/v1/setup/ios-profile
+
 CardDAV: /dav/{email}/contacts/
+.well-known/carddav → /dav/ (RFC 6764)
 ```
 
 ## Development

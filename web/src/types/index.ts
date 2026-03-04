@@ -7,6 +7,14 @@ export interface User {
   updated_at: string
 }
 
+export interface AppPassword {
+  id: string
+  user_id: string
+  label: string
+  last_used_at: string | null
+  created_at: string
+}
+
 // ── Child record types (returned when relations are loaded) ─────────────────
 
 export interface ContactEmail {

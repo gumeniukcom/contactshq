@@ -105,6 +105,16 @@ const router = createRouter({
           component: () => import('@/views/settings/PasswordView.vue'),
         },
         {
+          path: 'settings/app-passwords',
+          name: 'app-passwords',
+          component: () => import('@/views/settings/AppPasswordsView.vue'),
+        },
+        {
+          path: 'settings/setup',
+          name: 'setup',
+          component: () => import('@/views/settings/SetupView.vue'),
+        },
+        {
           path: 'settings/google',
           name: 'google-settings',
           component: () => import('@/views/settings/GoogleSettingsView.vue'),

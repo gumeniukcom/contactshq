@@ -67,6 +67,7 @@ func main() {
 	backupSettingsRepo := repository.NewBunUserBackupSettingsRepository(db)
 	dedupSettingsRepo := repository.NewBunUserDedupSettingsRepository(db)
 	providerConnRepo := repository.NewBunProviderConnectionRepository(db)
+	appPwRepo := repository.NewBunAppPasswordRepository(db)
 
 	// Services
 	authService := service.NewAuthService(userRepo, abRepo, cfg.Auth)
@@ -79,6 +80,8 @@ func main() {
 	backupService := service.NewBackupService(contactRepo, abRepo, backupSettingsRepo, cfg.Backup.Dir, cfg.Backup.Schedule, 7)
 	dupDetector := service.NewDuplicateDetector(contactRepo, abRepo, dupRepo, logger)
 	mergeService := service.NewMergeService(contactRepo, abRepo, dupRepo, syncRepo)
+
+	appPwService := service.NewAppPasswordService(appPwRepo)
 
 	// Google OAuth
 	googleOAuth := service.NewGoogleOAuthService(cfg.Google, providerConnRepo)
@@ -175,12 +178,19 @@ func main() {
 		DedupSettingsRepo: dedupSettingsRepo,
 		Scheduler:        sched,
 		GoogleOAuth:      googleOAuth,
+		AppPassword:      appPwService,
+	})
+
+	// RFC 6764 — CardDAV service discovery
+	davPrefix := cfg.CardDAV.PathPrefix
+	app.Get("/.well-known/carddav", func(c *fiber.Ctx) error {
+		c.Set("Cache-Control", "max-age=86400")
+		return c.Redirect(davPrefix+"/", fiber.StatusMovedPermanently)
 	})
 
 	// CardDAV server
-	davPrefix := cfg.CardDAV.PathPrefix
 	davBackend := chqcarddav.NewBackend(userRepo, abRepo, contactRepo, davPrefix)
-	davServer := chqcarddav.NewServer(davBackend, userRepo, davPrefix)
+	davServer := chqcarddav.NewServer(davBackend, userRepo, appPwRepo, davPrefix)
 	app.Use(davPrefix, adaptor.HTTPHandler(davServer))
 
 	// Web UI (landing + SPA)

@@ -35,8 +35,10 @@
 
       <div class="pt-4 mt-4 border-t border-sidebar-border">
         <p class="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Settings</p>
+        <NavLink to="/settings/setup" icon="phone">Connect Devices</NavLink>
         <NavLink to="/settings/profile" icon="user">Profile</NavLink>
         <NavLink to="/settings/password" icon="lock">Password</NavLink>
+        <NavLink to="/settings/app-passwords" icon="key-alt">App Passwords</NavLink>
         <NavLink to="/settings/google" icon="cloud">Google</NavLink>
       </div>
 

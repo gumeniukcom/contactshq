@@ -21,6 +21,17 @@ func RegisterRoutes(app *fiber.App) {
 		return tmpl.Execute(c.Response().BodyWriter(), nil)
 	})
 
+	// Public setup guide
+	setupTmpl, err := template.ParseFS(TemplateFiles, "templates/setup-guide.html")
+	if err != nil {
+		panic("failed to parse setup-guide template: " + err.Error())
+	}
+
+	app.Get("/setup", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return setupTmpl.Execute(c.Response().BodyWriter(), nil)
+	})
+
 	// SPA — serve from embedded filesystem
 	spaFS, err := fs.Sub(SPAFiles, "static/spa")
 	if err != nil {
