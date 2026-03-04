@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Gitleaks — scan staged changes for secrets
+if command -v gitleaks &>/dev/null; then
+  gitleaks git --pre-commit --staged --verbose
+else
+  echo "WARNING: gitleaks not installed, skipping secrets scan"
+  echo "Install: brew install gitleaks"
+fi

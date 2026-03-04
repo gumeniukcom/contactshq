@@ -3,8 +3,10 @@ package handler
 import (
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gumeniukcom/contactshq/internal/repository"
 	"github.com/gumeniukcom/contactshq/internal/service"
 )
 
@@ -27,14 +29,31 @@ func (h *ContactHandler) List(c *fiber.Ctx) error {
 		limit = 50
 	}
 
+	filters := repository.ListFilters{
+		SortBy:  c.Query("sort_by", "name"),
+		SortDir: c.Query("sort_dir", "asc"),
+		Org:     c.Query("org"),
+	}
+	if cat := c.Query("category"); cat != "" {
+		filters.Category = strings.Split(cat, ",")
+	}
+	if v := c.Query("has_email"); v != "" {
+		b := v == "true" || v == "1"
+		filters.HasEmail = &b
+	}
+	if v := c.Query("has_phone"); v != "" {
+		b := v == "true" || v == "1"
+		filters.HasPhone = &b
+	}
+
 	var contacts interface{}
 	var total int
 	var err error
 
 	if query != "" {
-		contacts, total, err = h.contactService.Search(c.Context(), userID, query, limit, offset)
+		contacts, total, err = h.contactService.Search(c.Context(), userID, query, limit, offset, filters)
 	} else {
-		contacts, total, err = h.contactService.List(c.Context(), userID, limit, offset)
+		contacts, total, err = h.contactService.List(c.Context(), userID, limit, offset, filters)
 	}
 
 	if err != nil {
@@ -50,6 +69,20 @@ func (h *ContactHandler) List(c *fiber.Ctx) error {
 		"limit":    limit,
 		"offset":   offset,
 	})
+}
+
+func (h *ContactHandler) Facets(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	facets, err := h.contactService.Facets(c.Context(), userID)
+	if err != nil {
+		if errors.Is(err, service.ErrAddressBookNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "address book not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to get facets"})
+	}
+
+	return c.JSON(facets)
 }
 
 func (h *ContactHandler) Create(c *fiber.Ctx) error {

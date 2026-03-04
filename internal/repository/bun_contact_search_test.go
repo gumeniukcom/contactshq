@@ -43,20 +43,20 @@ func TestContactSearch_ByChildEmail(t *testing.T) {
 	require.NoError(t, repo.ReplaceEmails(ctx, cID, emails))
 
 	// Search by the child email — should find the contact.
-	results, total, err := repo.Search(ctx, abID, "secret@work.org", 10, 0)
+	results, total, err := repo.Search(ctx, abID, "secret@work.org", 10, 0, repository.ListFilters{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	require.Len(t, results, 1)
 	assert.Equal(t, cID, results[0].ID)
 
 	// Partial match also works.
-	results, total, err = repo.Search(ctx, abID, "secret", 10, 0)
+	results, total, err = repo.Search(ctx, abID, "secret", 10, 0, repository.ListFilters{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Len(t, results, 1)
 
 	// Unrelated query returns nothing.
-	results, total, err = repo.Search(ctx, abID, "nobody@nowhere.com", 10, 0)
+	results, total, err = repo.Search(ctx, abID, "nobody@nowhere.com", 10, 0, repository.ListFilters{})
 	require.NoError(t, err)
 	assert.Equal(t, 0, total)
 	assert.Empty(t, results)
@@ -90,7 +90,7 @@ func TestContactSearch_ByChildPhone(t *testing.T) {
 	phones := []*domain.ContactPhone{{Value: "+49 30 987654321", Type: "work"}}
 	require.NoError(t, repo.ReplacePhones(ctx, cID, phones))
 
-	results, total, err := repo.Search(ctx, abID, "987654", 10, 0)
+	results, total, err := repo.Search(ctx, abID, "987654", 10, 0, repository.ListFilters{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	require.Len(t, results, 1)
@@ -125,7 +125,7 @@ func TestContactSearch_ByChildCategory(t *testing.T) {
 	cats := []*domain.ContactCategory{{Value: "vip-customer"}}
 	require.NoError(t, repo.ReplaceCategories(ctx, cID, cats))
 
-	results, total, err := repo.Search(ctx, abID, "vip", 10, 0)
+	results, total, err := repo.Search(ctx, abID, "vip", 10, 0, repository.ListFilters{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	require.Len(t, results, 1)
@@ -163,7 +163,7 @@ func TestContactSearchWithRelations_LoadsChildRows(t *testing.T) {
 	}
 	require.NoError(t, repo.ReplaceEmails(ctx, cID, emails))
 
-	results, total, err := repo.SearchWithRelations(ctx, abID, "Multi", 10, 0)
+	results, total, err := repo.SearchWithRelations(ctx, abID, "Multi", 10, 0, repository.ListFilters{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	require.Len(t, results, 1)

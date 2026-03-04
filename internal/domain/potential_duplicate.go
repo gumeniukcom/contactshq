@@ -11,8 +11,8 @@ type PotentialDuplicate struct {
 
 	ID           string    `bun:",pk,type:text"                              json:"id"`
 	UserID       string    `bun:",notnull"                                   json:"user_id"`
-	ContactAID   string    `bun:",notnull"                                   json:"contact_a_id"`
-	ContactBID   string    `bun:",notnull"                                   json:"contact_b_id"`
+	ContactAID   string    `bun:"contact_a_id,notnull"                       json:"contact_a_id"`
+	ContactBID   string    `bun:"contact_b_id,notnull"                       json:"contact_b_id"`
 	Score        float64   `bun:",notnull"                                   json:"score"`
 	MatchReasons string    `bun:"match_reasons,notnull,default:'[]'"          json:"match_reasons"` // JSON []string
 	Status       string    `bun:",notnull,default:'pending'"                 json:"status"`

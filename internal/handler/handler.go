@@ -68,6 +68,7 @@ func Register(app *fiber.App, svc Services) {
 	// Contacts — static sub-paths must come before /:id
 	contacts := protected.Group("/contacts")
 	contacts.Get("/", contactHandler.List)
+	contacts.Get("/facets", contactHandler.Facets)
 	contacts.Post("/", contactHandler.Create)
 	contacts.Delete("/", contactHandler.DeleteAll)
 

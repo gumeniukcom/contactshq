@@ -1,0 +1,8 @@
+title = "ContactsHQ gitleaks config"
+
+[allowlist]
+  paths = [
+    '''go\.sum''',
+    '''package-lock\.json''',
+    '''\.gitkeep''',
+  ]

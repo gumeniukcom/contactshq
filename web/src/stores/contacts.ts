@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '@/api/contacts'
+import type { ContactFacets } from '@/api/contacts'
 import type { Contact, CreateContactInput } from '@/types'
 
 export const useContactsStore = defineStore('contacts', () => {
@@ -8,21 +9,58 @@ export const useContactsStore = defineStore('contacts', () => {
   const total = ref(0)
   const loading = ref(false)
 
-  async function fetchContacts(params?: { page?: number; per_page?: number; search?: string }) {
+  // Sort & filter state
+  const sortBy = ref('name')
+  const sortDir = ref<'asc' | 'desc'>('asc')
+  const filterCategory = ref<string[]>([])
+  const filterOrg = ref('')
+  const filterHasEmail = ref(false)
+  const filterHasPhone = ref(false)
+  const perPage = ref(20)
+  const facets = ref<ContactFacets | null>(null)
+
+  async function fetchContacts(params?: { page?: number; search?: string }) {
     loading.value = true
     try {
-      const perPage = params?.per_page ?? 50
+      const pp = perPage.value
       const page = params?.page ?? 1
-      const { data } = await api.listContacts({
-        limit: perPage,
-        offset: (page - 1) * perPage,
-        q: params?.search,
-      })
+      const apiParams: api.ListContactsParams = {
+        limit: pp,
+        offset: (page - 1) * pp,
+        q: params?.search || undefined,
+        sort_by: sortBy.value,
+        sort_dir: sortDir.value,
+      }
+      if (filterCategory.value.length > 0) {
+        apiParams.category = filterCategory.value.join(',')
+      }
+      if (filterOrg.value) {
+        apiParams.org = filterOrg.value
+      }
+      if (filterHasEmail.value) {
+        apiParams.has_email = 'true'
+      }
+      if (filterHasPhone.value) {
+        apiParams.has_phone = 'true'
+      }
+      const { data } = await api.listContacts(apiParams)
       contacts.value = data.contacts
       total.value = data.total
     } finally {
       loading.value = false
     }
+  }
+
+  async function fetchFacets() {
+    const { data } = await api.getContactFacets()
+    facets.value = data
+  }
+
+  function resetFilters() {
+    filterCategory.value = []
+    filterOrg.value = ''
+    filterHasEmail.value = false
+    filterHasPhone.value = false
   }
 
   async function createContact(input: Partial<CreateContactInput>) {
@@ -45,5 +83,10 @@ export const useContactsStore = defineStore('contacts', () => {
     total.value = 0
   }
 
-  return { contacts, total, loading, fetchContacts, createContact, updateContact, deleteContact, deleteAllContacts }
+  return {
+    contacts, total, loading,
+    sortBy, sortDir, filterCategory, filterOrg, filterHasEmail, filterHasPhone, perPage, facets,
+    fetchContacts, fetchFacets, resetFilters,
+    createContact, updateContact, deleteContact, deleteAllContacts,
+  }
 })

@@ -1,8 +1,30 @@
 import client from './client'
 import type { Contact, CreateContactInput, PotentialDuplicate, MergeInput } from '@/types'
 
-export function listContacts(params?: { limit?: number; offset?: number; q?: string }) {
+export interface ListContactsParams {
+  limit?: number
+  offset?: number
+  q?: string
+  sort_by?: string
+  sort_dir?: string
+  category?: string
+  org?: string
+  has_email?: string
+  has_phone?: string
+}
+
+export function listContacts(params?: ListContactsParams) {
   return client.get<{ contacts: Contact[]; total: number }>('/contacts', { params })
+}
+
+export interface ContactFacets {
+  categories: string[]
+  orgs: string[]
+  total: number
+}
+
+export function getContactFacets() {
+  return client.get<ContactFacets>('/contacts/facets')
 }
 
 export function getContact(id: string) {
@@ -52,3 +74,4 @@ export function dismissDuplicate(id: string) {
 export function mergeContacts(data: MergeInput) {
   return client.post<Contact>('/contacts/merge', data)
 }
+

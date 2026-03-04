@@ -34,8 +34,8 @@ type ContactRepository interface {
 	Update(ctx context.Context, contact *domain.Contact) error
 	Delete(ctx context.Context, id string) error
 	DeleteAll(ctx context.Context, addressBookID string) error
-	List(ctx context.Context, addressBookID string, limit, offset int) ([]*domain.Contact, int, error)
-	Search(ctx context.Context, addressBookID, query string, limit, offset int) ([]*domain.Contact, int, error)
+	List(ctx context.Context, addressBookID string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error)
+	Search(ctx context.Context, addressBookID, query string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error)
 	ListAll(ctx context.Context, addressBookID string) ([]*domain.Contact, error)
 
 	// Child-record management (delete-then-insert in a transaction)
@@ -50,8 +50,9 @@ type ContactRepository interface {
 	// Versions that also load child records
 	GetByIDWithRelations(ctx context.Context, id string) (*domain.Contact, error)
 	GetByUIDWithRelations(ctx context.Context, addressBookID, uid string) (*domain.Contact, error)
-	ListWithRelations(ctx context.Context, addressBookID string, limit, offset int) ([]*domain.Contact, int, error)
-	SearchWithRelations(ctx context.Context, addressBookID, query string, limit, offset int) ([]*domain.Contact, int, error)
+	ListWithRelations(ctx context.Context, addressBookID string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error)
+	SearchWithRelations(ctx context.Context, addressBookID, query string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error)
+	Facets(ctx context.Context, addressBookID string) (*ContactFacets, error)
 }
 
 type UserBackupSettingsRepository interface {

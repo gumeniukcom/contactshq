@@ -119,29 +119,35 @@ func (r *BunContactRepository) GetByUIDWithRelations(ctx context.Context, addres
 	return contact, nil
 }
 
-func (r *BunContactRepository) ListWithRelations(ctx context.Context, addressBookID string, limit, offset int) ([]*domain.Contact, int, error) {
-	contacts, total, err := r.List(ctx, addressBookID, limit, offset)
+func loadRelations(ctx context.Context, db *bun.DB, contacts []*domain.Contact) error {
+	ids := make([]string, len(contacts))
+	for i, c := range contacts {
+		ids[i] = c.ID
+	}
+	return db.NewSelect().Model(&contacts).
+		Where("c.id IN (?)", bun.In(ids)). //nolint:staticcheck
+		Relation("Emails").Relation("Phones").Relation("Addresses").
+		Relation("URLs").Relation("IMs").Relation("Categories").Relation("Dates").
+		Scan(ctx)
+}
+
+func (r *BunContactRepository) ListWithRelations(ctx context.Context, addressBookID string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error) {
+	contacts, total, err := r.List(ctx, addressBookID, limit, offset, filters)
 	if err != nil || len(contacts) == 0 {
 		return contacts, total, err
 	}
-	if err := r.db.NewSelect().Model(&contacts).
-		Relation("Emails").Relation("Phones").Relation("Addresses").
-		Relation("URLs").Relation("IMs").Relation("Categories").Relation("Dates").
-		Scan(ctx); err != nil {
+	if err := loadRelations(ctx, r.db, contacts); err != nil {
 		return nil, 0, err
 	}
 	return contacts, total, nil
 }
 
-func (r *BunContactRepository) SearchWithRelations(ctx context.Context, addressBookID, query string, limit, offset int) ([]*domain.Contact, int, error) {
-	contacts, total, err := r.Search(ctx, addressBookID, query, limit, offset)
+func (r *BunContactRepository) SearchWithRelations(ctx context.Context, addressBookID, query string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error) {
+	contacts, total, err := r.Search(ctx, addressBookID, query, limit, offset, filters)
 	if err != nil || len(contacts) == 0 {
 		return contacts, total, err
 	}
-	if err := r.db.NewSelect().Model(&contacts).
-		Relation("Emails").Relation("Phones").Relation("Addresses").
-		Relation("URLs").Relation("IMs").Relation("Categories").Relation("Dates").
-		Scan(ctx); err != nil {
+	if err := loadRelations(ctx, r.db, contacts); err != nil {
 		return nil, 0, err
 	}
 	return contacts, total, nil

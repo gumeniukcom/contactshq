@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/gumeniukcom/contactshq/internal/domain"
+	"github.com/gumeniukcom/contactshq/internal/repository"
 )
 
 // --- mock ContactRepository ---
@@ -58,11 +59,11 @@ func (m *mockContactRepo) DeleteAll(_ context.Context, abID string) error {
 	return nil
 }
 
-func (m *mockContactRepo) List(_ context.Context, _ string, _, _ int) ([]*domain.Contact, int, error) {
+func (m *mockContactRepo) List(_ context.Context, _ string, _, _ int, _ repository.ListFilters) ([]*domain.Contact, int, error) {
 	return nil, 0, nil
 }
 
-func (m *mockContactRepo) Search(_ context.Context, _, _ string, _, _ int) ([]*domain.Contact, int, error) {
+func (m *mockContactRepo) Search(_ context.Context, _, _ string, _, _ int, _ repository.ListFilters) ([]*domain.Contact, int, error) {
 	return nil, 0, nil
 }
 
@@ -104,11 +105,14 @@ func (m *mockContactRepo) GetByIDWithRelations(_ context.Context, id string) (*d
 func (m *mockContactRepo) GetByUIDWithRelations(_ context.Context, abID, uid string) (*domain.Contact, error) {
 	return m.byUID[abID+":"+uid], nil
 }
-func (m *mockContactRepo) ListWithRelations(_ context.Context, _ string, _, _ int) ([]*domain.Contact, int, error) {
+func (m *mockContactRepo) ListWithRelations(_ context.Context, _ string, _, _ int, _ repository.ListFilters) ([]*domain.Contact, int, error) {
 	return nil, 0, nil
 }
-func (m *mockContactRepo) SearchWithRelations(_ context.Context, _, _ string, _, _ int) ([]*domain.Contact, int, error) {
+func (m *mockContactRepo) SearchWithRelations(_ context.Context, _, _ string, _, _ int, _ repository.ListFilters) ([]*domain.Contact, int, error) {
 	return nil, 0, nil
+}
+func (m *mockContactRepo) Facets(_ context.Context, _ string) (*repository.ContactFacets, error) {
+	return &repository.ContactFacets{Categories: []string{}, Orgs: []string{}}, nil
 }
 
 // --- mock AddressBookRepository ---

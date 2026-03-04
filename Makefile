@@ -1,4 +1,4 @@
-.PHONY: build build-frontend run test clean docker docker-up docker-down lint tidy dev-frontend
+.PHONY: build build-frontend run test clean docker docker-up docker-down lint tidy dev-frontend setup-hooks
 
 BINARY    = contactshq
 VERSION   = $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -47,3 +47,7 @@ docker-down:
 
 docker-logs:
 	docker compose logs -f app
+
+setup-hooks:
+	git config core.hooksPath .githooks
+	@echo "Git hooks configured to use .githooks/"

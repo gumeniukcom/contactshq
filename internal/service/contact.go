@@ -225,22 +225,31 @@ func (s *ContactService) Delete(ctx context.Context, userID, contactID string) e
 	return s.contactRepo.Delete(ctx, contact.ID)
 }
 
-func (s *ContactService) List(ctx context.Context, userID string, limit, offset int) ([]*domain.Contact, int, error) {
+func (s *ContactService) List(ctx context.Context, userID string, limit, offset int, filters repository.ListFilters) ([]*domain.Contact, int, error) {
 	ab, err := s.abRepo.GetOrCreateByUserID(ctx, userID)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return s.contactRepo.ListWithRelations(ctx, ab.ID, limit, offset)
+	return s.contactRepo.ListWithRelations(ctx, ab.ID, limit, offset, filters)
 }
 
-func (s *ContactService) Search(ctx context.Context, userID, query string, limit, offset int) ([]*domain.Contact, int, error) {
+func (s *ContactService) Search(ctx context.Context, userID, query string, limit, offset int, filters repository.ListFilters) ([]*domain.Contact, int, error) {
 	ab, err := s.abRepo.GetOrCreateByUserID(ctx, userID)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return s.contactRepo.SearchWithRelations(ctx, ab.ID, query, limit, offset)
+	return s.contactRepo.SearchWithRelations(ctx, ab.ID, query, limit, offset, filters)
+}
+
+func (s *ContactService) Facets(ctx context.Context, userID string) (*repository.ContactFacets, error) {
+	ab, err := s.abRepo.GetOrCreateByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.contactRepo.Facets(ctx, ab.ID)
 }
 
 func (s *ContactService) DeleteAll(ctx context.Context, userID string) error {
