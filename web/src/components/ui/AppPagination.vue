@@ -1,13 +1,13 @@
 <template>
   <div v-if="totalPages > 1 || showPerPage" class="flex items-center justify-between px-4 py-3">
     <div class="flex items-center gap-3">
-      <span class="text-sm text-gray-700">
+      <span class="text-sm text-muted-foreground">
         Showing {{ (page - 1) * perPage + 1 }} to {{ Math.min(page * perPage, total) }} of {{ total }}
       </span>
       <select
         v-if="showPerPage"
         :value="perPage"
-        class="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+        class="text-sm border border-input rounded px-2 py-1 bg-background text-foreground"
         @change="$emit('update:perPage', Number(($event.target as HTMLSelectElement).value))"
       >
         <option :value="20">20 / page</option>
@@ -18,7 +18,7 @@
     <div v-if="totalPages > 1" class="flex gap-1">
       <button
         :disabled="page <= 1"
-        class="px-3 py-1 text-sm rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        class="px-3 py-1 text-sm rounded border border-input hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed"
         @click="$emit('update:page', page - 1)"
       >
         Previous
@@ -28,7 +28,7 @@
         :key="p"
         :class="[
           'px-3 py-1 text-sm rounded border',
-          p === page ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 hover:bg-gray-50',
+          p === page ? 'bg-primary text-primary-foreground border-primary' : 'border-input hover:bg-muted/50',
         ]"
         @click="$emit('update:page', p)"
       >
@@ -36,7 +36,7 @@
       </button>
       <button
         :disabled="page >= totalPages"
-        class="px-3 py-1 text-sm rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        class="px-3 py-1 text-sm rounded border border-input hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed"
         @click="$emit('update:page', page + 1)"
       >
         Next

@@ -1,8 +1,8 @@
 <template>
-  <div class="inline-flex rounded-lg border border-gray-300 bg-white">
+  <div class="inline-flex rounded-lg border border-input bg-background">
     <button
       class="p-2 rounded-l-lg transition-colors"
-      :class="modelValue === 'table' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600'"
+      :class="modelValue === 'table' ? 'bg-muted text-accent' : 'text-muted-foreground hover:text-foreground'"
       title="Table view"
       @click="$emit('update:modelValue', 'table')"
     >
@@ -11,8 +11,8 @@
       </svg>
     </button>
     <button
-      class="p-2 rounded-r-lg border-l border-gray-300 transition-colors"
-      :class="modelValue === 'card' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600'"
+      class="p-2 rounded-r-lg border-l border-input transition-colors"
+      :class="modelValue === 'card' ? 'bg-muted text-accent' : 'text-muted-foreground hover:text-foreground'"
       title="Card view"
       @click="$emit('update:modelValue', 'card')"
     >

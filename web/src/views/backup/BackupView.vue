@@ -1,16 +1,16 @@
 <template>
   <div class="max-w-3xl space-y-6">
-    <h1 class="text-2xl font-bold text-gray-900">Backup</h1>
+    <h1 class="text-2xl font-bold text-foreground">Backup</h1>
 
     <!-- Schedule Settings Card -->
     <AppCard>
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Automatic Backup</h2>
+      <h2 class="text-lg font-semibold text-foreground mb-4">Automatic Backup</h2>
 
       <div class="space-y-4">
         <!-- Enabled toggle -->
         <label class="flex items-center gap-3 cursor-pointer">
-          <input type="checkbox" v-model="settings.enabled" class="h-4 w-4 text-indigo-600 rounded" />
-          <span class="text-sm font-medium text-gray-700">Enable scheduled backups</span>
+          <input type="checkbox" v-model="settings.enabled" class="h-4 w-4 text-accent rounded" />
+          <span class="text-sm font-medium text-foreground">Enable scheduled backups</span>
         </label>
 
         <div v-if="settings.enabled" class="space-y-3">
@@ -18,23 +18,23 @@
 
           <!-- Retention -->
           <div class="flex items-center gap-3">
-            <label class="text-sm font-medium text-gray-700 w-40">Keep last</label>
+            <label class="text-sm font-medium text-foreground w-40">Keep last</label>
             <input
               v-model.number="settings.retention"
               type="number"
               min="1"
               max="365"
-              class="w-20 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              class="w-20 rounded-md border border-input bg-background text-foreground px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            <span class="text-sm text-gray-500">backups</span>
+            <span class="text-sm text-muted-foreground">backups</span>
           </div>
 
           <!-- Compress -->
           <label class="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" v-model="settings.compress" class="h-4 w-4 text-indigo-600 rounded" />
-            <span class="text-sm font-medium text-gray-700">
+            <input type="checkbox" v-model="settings.compress" class="h-4 w-4 text-accent rounded" />
+            <span class="text-sm font-medium text-foreground">
               Compress backups with gzip
-              <span class="text-gray-400 font-normal">(saves disk space)</span>
+              <span class="text-muted-foreground font-normal">(saves disk space)</span>
             </span>
           </label>
         </div>
@@ -42,24 +42,24 @@
 
       <div class="mt-5 flex items-center gap-3">
         <AppButton :loading="savingSettings" @click="handleSaveSettings">Save Settings</AppButton>
-        <span v-if="settingsSaved" class="text-sm text-green-600">Settings saved</span>
+        <span v-if="settingsSaved" class="text-sm text-green-600 dark:text-green-400">Settings saved</span>
       </div>
     </AppCard>
 
     <!-- Backup List Card -->
     <AppCard>
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold text-gray-900">Backup Files</h2>
+        <h2 class="text-lg font-semibold text-foreground">Backup Files</h2>
         <AppButton @click="handleCreate" :loading="creating">Create Backup Now</AppButton>
       </div>
 
       <AppTable :columns="columns" :rows="backups" :loading="loading" empty-text="No backups yet">
         <template #body="{ rows }">
-          <tr v-for="b in (rows as BackupInfo[])" :key="b.id" class="hover:bg-gray-50">
-            <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ b.filename }}</td>
-            <td class="px-6 py-4 text-sm text-gray-500">{{ formatSize(b.size) }}</td>
-            <td class="px-6 py-4 text-sm text-gray-500">{{ formatDate(b.created_at) }}</td>
-            <td class="px-6 py-4 text-sm text-right">
+          <tr v-for="b in (rows as BackupInfo[])" :key="b.id" class="hover:bg-muted/50">
+            <td class="px-4 py-4 text-sm font-medium text-foreground">{{ b.filename }}</td>
+            <td class="px-4 py-4 text-sm text-muted-foreground">{{ formatSize(b.size) }}</td>
+            <td class="px-4 py-4 text-sm text-muted-foreground">{{ formatDateTime(b.created_at) }}</td>
+            <td class="px-4 py-4 text-sm text-right">
               <div class="flex justify-end gap-2">
                 <AppButton size="sm" variant="secondary" @click="handleDownload(b)">Download</AppButton>
                 <AppButton size="sm" variant="secondary" @click="openRestore(b)">Restore</AppButton>
@@ -73,46 +73,46 @@
 
     <!-- Restore Modal -->
     <div v-if="restoreTarget" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
-        <h3 class="text-lg font-semibold text-gray-900 mb-2">Restore from Backup</h3>
-        <p class="text-sm text-gray-500 mb-4">
+      <div class="bg-card border border-border rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+        <h3 class="text-lg font-semibold text-foreground mb-2">Restore from Backup</h3>
+        <p class="text-sm text-muted-foreground mb-4">
           Restore <span class="font-medium">{{ restoreTarget.filename }}</span>
         </p>
 
         <div class="space-y-3 mb-5">
           <label class="flex items-start gap-3 cursor-pointer p-3 rounded-lg border transition-colors"
-            :class="restoreMode === 'merge' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'">
-            <input type="radio" v-model="restoreMode" value="merge" class="mt-0.5 text-indigo-600" />
+            :class="restoreMode === 'merge' ? 'border-accent bg-accent/10' : 'border-border hover:border-muted-foreground'">
+            <input type="radio" v-model="restoreMode" value="merge" class="mt-0.5 text-accent" />
             <div>
-              <p class="text-sm font-medium text-gray-800">Merge</p>
-              <p class="text-xs text-gray-500">Add contacts from backup that don't exist yet (safe, non-destructive)</p>
+              <p class="text-sm font-medium text-foreground">Merge</p>
+              <p class="text-xs text-muted-foreground">Add contacts from backup that don't exist yet (safe, non-destructive)</p>
             </div>
           </label>
 
           <label class="flex items-start gap-3 cursor-pointer p-3 rounded-lg border transition-colors"
-            :class="restoreMode === 'replace' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300'">
-            <input type="radio" v-model="restoreMode" value="replace" class="mt-0.5 text-red-600" />
+            :class="restoreMode === 'replace' ? 'border-destructive bg-red-50 dark:bg-red-500/10' : 'border-border hover:border-muted-foreground'">
+            <input type="radio" v-model="restoreMode" value="replace" class="mt-0.5 text-destructive" />
             <div>
-              <p class="text-sm font-medium text-gray-800">Replace</p>
-              <p class="text-xs text-gray-500 text-red-600">
+              <p class="text-sm font-medium text-foreground">Replace</p>
+              <p class="text-xs text-destructive">
                 Delete ALL current contacts and restore from backup. This cannot be undone.
               </p>
             </div>
           </label>
         </div>
 
-        <p v-if="restoreResult" class="text-sm text-green-700 bg-green-50 rounded p-2 mb-3">
+        <p v-if="restoreResult" class="text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 rounded p-2 mb-3">
           Done: {{ restoreResult.imported }} imported, {{ restoreResult.skipped }} skipped, {{ restoreResult.errors }} errors.
         </p>
-        <p v-if="restoreError" class="text-sm text-red-600 mb-3">{{ restoreError }}</p>
+        <p v-if="restoreError" class="text-sm text-destructive mb-3">{{ restoreError }}</p>
 
         <div class="flex justify-end gap-3">
-          <button
+          <AppButton
+            variant="secondary"
             @click="restoreTarget = null; restoreResult = null; restoreError = ''"
-            class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
           >
             Cancel
-          </button>
+          </AppButton>
           <AppButton
             :loading="restoring"
             :variant="restoreMode === 'replace' ? 'danger' : 'primary'"
@@ -126,18 +126,13 @@
 
     <!-- Delete confirmation modal -->
     <div v-if="deleteTarget" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm mx-4">
-        <h3 class="text-lg font-semibold text-gray-900 mb-2">Delete Backup</h3>
-        <p class="text-sm text-gray-500 mb-4">
+      <div class="bg-card border border-border rounded-lg shadow-xl p-6 w-full max-w-sm mx-4">
+        <h3 class="text-lg font-semibold text-foreground mb-2">Delete Backup</h3>
+        <p class="text-sm text-muted-foreground mb-4">
           Delete <span class="font-medium">{{ deleteTarget.filename }}</span>? This cannot be undone.
         </p>
         <div class="flex justify-end gap-3">
-          <button
-            @click="deleteTarget = null"
-            class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-          >
-            Cancel
-          </button>
+          <AppButton variant="secondary" @click="deleteTarget = null">Cancel</AppButton>
           <AppButton variant="danger" :loading="deleting" @click="handleDelete">Delete</AppButton>
         </div>
       </div>
@@ -151,6 +146,7 @@ import {
   createBackup, listBackups, downloadBackup, deleteBackup,
   restoreBackup, getBackupSettings, saveBackupSettings,
 } from '@/api/backup'
+import { formatDateTime } from '@/utils/date'
 import type { BackupInfo, BackupSettings, RestoreResult } from '@/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
@@ -293,9 +289,4 @@ function formatSize(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(1) + ' MB'
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
-}
 </script>

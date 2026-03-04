@@ -1,12 +1,12 @@
 <template>
-  <aside class="w-64 bg-white border-r border-gray-200 flex flex-col">
-    <div class="h-16 flex items-center px-6 border-b border-gray-200">
+  <aside class="w-64 bg-sidebar dark:backdrop-blur-xl border-r border-sidebar-border flex flex-col">
+    <div class="h-16 flex items-center px-6 border-b border-sidebar-border">
       <RouterLink to="/" class="flex items-center gap-2">
-        <svg class="h-7 w-7 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg class="h-7 w-7 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
-        <span class="text-lg font-bold text-gray-900">ContactsHQ</span>
+        <span class="text-lg font-bold text-foreground">ContactsHQ</span>
       </RouterLink>
     </div>
 
@@ -33,15 +33,15 @@
         </span>
       </NavLink>
 
-      <div class="pt-4 mt-4 border-t border-gray-200">
-        <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Settings</p>
+      <div class="pt-4 mt-4 border-t border-sidebar-border">
+        <p class="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Settings</p>
         <NavLink to="/settings/profile" icon="user">Profile</NavLink>
         <NavLink to="/settings/password" icon="lock">Password</NavLink>
         <NavLink to="/settings/google" icon="cloud">Google</NavLink>
       </div>
 
-      <div v-if="auth.isAdmin" class="pt-4 mt-4 border-t border-gray-200">
-        <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Admin</p>
+      <div v-if="auth.isAdmin" class="pt-4 mt-4 border-t border-sidebar-border">
+        <p class="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Admin</p>
         <NavLink to="/admin/users" icon="shield">Users</NavLink>
       </div>
     </nav>

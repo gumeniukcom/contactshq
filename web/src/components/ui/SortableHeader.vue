@@ -1,9 +1,9 @@
 <template>
   <th
     :class="[
-      'px-6 py-3 text-left text-xs font-medium uppercase tracking-wider select-none',
-      sortable ? 'cursor-pointer hover:text-indigo-600' : '',
-      isActive ? 'text-indigo-600' : 'text-gray-500',
+      'px-4 py-3 text-left text-xs font-medium uppercase tracking-wider select-none',
+      sortable ? 'cursor-pointer hover:text-accent' : '',
+      isActive ? 'text-accent' : 'text-muted-foreground',
     ]"
     @click="sortable && $emit('sort', columnKey)"
   >

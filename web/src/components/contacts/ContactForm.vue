@@ -3,7 +3,7 @@
 
     <!-- ── Name ─────────────────────────────────────────────── -->
     <section>
-      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Name</h3>
+      <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Name</h3>
       <div class="grid grid-cols-12 gap-3 mb-3">
         <div class="col-span-2">
           <AppInput v-model="form.name_prefix" label="Prefix" placeholder="Dr." id="name_prefix" />
@@ -26,7 +26,7 @@
 
     <!-- ── Contact ───────────────────────────────────────────── -->
     <section>
-      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Contact</h3>
+      <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Contact</h3>
       <div class="space-y-4">
         <MultiFieldRow
           v-model="form.emails"
@@ -49,7 +49,7 @@
 
     <!-- ── Organization ──────────────────────────────────────── -->
     <section>
-      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Organization</h3>
+      <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Organization</h3>
       <div class="grid grid-cols-2 gap-3 mb-3">
         <AppInput v-model="form.org" label="Company" placeholder="Acme Inc." id="org" />
         <AppInput v-model="form.department" label="Department" placeholder="Engineering" id="department" />
@@ -62,18 +62,18 @@
 
     <!-- ── Personal ──────────────────────────────────────────── -->
     <section>
-      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Personal</h3>
+      <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Personal</h3>
       <div class="grid grid-cols-2 gap-3 mb-3">
         <AppInput v-model="form.bday" label="Birthday" type="date" id="bday" />
         <AppInput v-model="form.anniversary" label="Anniversary" type="date" id="anniversary" />
       </div>
       <div class="grid grid-cols-2 gap-3 mb-3">
         <div>
-          <label for="gender" class="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+          <label for="gender" class="block text-sm font-medium text-foreground mb-1">Gender</label>
           <select
             id="gender"
             v-model="form.gender"
-            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border bg-white"
+            class="block w-full rounded-md border border-input bg-background text-foreground focus:border-ring focus:ring-ring sm:text-sm px-3 py-2"
           >
             <option value="">—</option>
             <option value="M">Male</option>
@@ -85,12 +85,12 @@
         <AppInput v-model="form.tz" label="Time Zone" placeholder="America/New_York" id="tz" />
       </div>
       <div>
-        <label for="note" class="block text-sm font-medium text-gray-700 mb-1">Note</label>
+        <label for="note" class="block text-sm font-medium text-foreground mb-1">Note</label>
         <textarea
           id="note"
           v-model="form.note"
           rows="3"
-          class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border"
+          class="block w-full rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-ring sm:text-sm px-3 py-2"
           placeholder="Notes..."
         />
       </div>
@@ -99,26 +99,26 @@
     <!-- ── Addresses ──────────────────────────────────────────── -->
     <section>
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Addresses</h3>
+        <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Addresses</h3>
         <button
           type="button"
-          class="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+          class="text-sm text-accent hover:text-accent/80 font-medium"
           @click="addAddress"
         >
           + Add address
         </button>
       </div>
 
-      <div v-if="form.addresses.length === 0" class="text-sm text-gray-400 italic">No addresses</div>
+      <div v-if="form.addresses.length === 0" class="text-sm text-muted-foreground italic">No addresses</div>
 
       <div
         v-for="(addr, i) in form.addresses"
         :key="i"
-        class="border border-gray-200 rounded-lg p-4 mb-3 space-y-3 relative"
+        class="border border-border rounded-lg p-4 mb-3 space-y-3 relative"
       >
         <button
           type="button"
-          class="absolute top-3 right-3 text-gray-400 hover:text-red-600 transition-colors"
+          class="absolute top-3 right-3 text-muted-foreground hover:text-destructive transition-colors"
           @click="removeAddress(i)"
         >
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -128,10 +128,10 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+            <label class="block text-sm font-medium text-foreground mb-1">Type</label>
             <select
               v-model="addr.type"
-              class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border bg-white"
+              class="block w-full rounded-md border border-input bg-background text-foreground focus:border-ring focus:ring-ring sm:text-sm px-3 py-2"
             >
               <option value="">—</option>
               <option value="work">Work</option>
@@ -152,7 +152,7 @@
 
     <!-- ── Web & Messaging ───────────────────────────────────── -->
     <section>
-      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Web & Messaging</h3>
+      <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Web & Messaging</h3>
       <div class="space-y-4">
         <MultiFieldRow
           v-model="form.urls"
@@ -173,25 +173,25 @@
 
     <!-- ── Tags ──────────────────────────────────────────────── -->
     <section>
-      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Tags</h3>
+      <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Tags</h3>
       <div>
-        <label for="categories" class="block text-sm font-medium text-gray-700 mb-1">
+        <label for="categories" class="block text-sm font-medium text-foreground mb-1">
           Categories
-          <span class="text-gray-400 font-normal">(comma-separated)</span>
+          <span class="text-muted-foreground font-normal">(comma-separated)</span>
         </label>
         <input
           id="categories"
           type="text"
           :value="form.categories.join(', ')"
           placeholder="friend, colleague, vip"
-          class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border"
+          class="block w-full rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-ring sm:text-sm px-3 py-2"
           @input="updateCategories(($event.target as HTMLInputElement).value)"
         />
       </div>
     </section>
 
     <!-- ── Actions ───────────────────────────────────────────── -->
-    <div class="flex justify-end gap-3 pt-4 border-t border-gray-200">
+    <div class="flex justify-end gap-3 pt-4 border-t border-border">
       <AppButton variant="secondary" @click="$emit('cancel')">Cancel</AppButton>
       <AppButton type="submit" :loading="loading">{{ submitLabel }}</AppButton>
     </div>
@@ -254,4 +254,3 @@ function getVCardPayload(): { vcard_data: string } {
 
 defineExpose({ form, getVCardPayload })
 </script>
-

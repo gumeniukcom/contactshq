@@ -3,8 +3,8 @@
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-gray-900">{{ pipeline?.name ?? '…' }}</h1>
-        <p v-if="pipeline" class="mt-1 text-sm text-gray-500">
+        <h1 class="text-2xl font-bold text-foreground">{{ pipeline?.name ?? '…' }}</h1>
+        <p v-if="pipeline" class="mt-1 text-sm text-muted-foreground">
           {{ pipeline.schedule ? humanizeCron(pipeline.schedule) : 'No schedule' }} ·
           <AppBadge :color="pipeline.enabled ? 'green' : 'gray'">
             {{ pipeline.enabled ? 'Enabled' : 'Disabled' }}
@@ -23,22 +23,22 @@
 
     <!-- Steps summary -->
     <AppCard v-if="pipeline && pipeline.steps?.length">
-      <h2 class="text-sm font-semibold text-gray-700 mb-3">Steps</h2>
+      <h2 class="text-sm font-semibold text-foreground mb-3">Steps</h2>
       <div class="space-y-2">
         <div
           v-for="(step, i) in pipeline.steps"
           :key="i"
-          class="flex items-center gap-2 text-sm text-gray-600"
+          class="flex items-center gap-2 text-sm text-muted-foreground"
         >
-          <span class="font-medium text-gray-400">{{ i + 1 }}.</span>
+          <span class="font-medium text-muted-foreground">{{ i + 1 }}.</span>
           <span class="font-medium">{{ step.source_type }}</span>
-          <svg class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
           </svg>
           <span class="font-medium">{{ step.dest_type }}</span>
-          <span class="text-gray-400">·</span>
-          <span class="text-xs bg-gray-100 rounded px-1.5 py-0.5">{{ step.direction }}</span>
-          <span class="text-xs bg-gray-100 rounded px-1.5 py-0.5">{{ step.conflict_mode }}</span>
+          <span class="text-muted-foreground">·</span>
+          <span class="text-xs bg-muted rounded px-1.5 py-0.5">{{ step.direction }}</span>
+          <span class="text-xs bg-muted rounded px-1.5 py-0.5">{{ step.conflict_mode }}</span>
         </div>
       </div>
     </AppCard>
@@ -46,14 +46,14 @@
     <!-- Trigger result -->
     <div
       v-if="triggerResult"
-      class="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800"
+      class="rounded-lg border border-green-200 dark:border-green-500/30 bg-green-50 dark:bg-green-500/20 p-4 text-sm text-green-800 dark:text-green-300"
     >
       <p class="font-medium mb-1">Pipeline executed successfully</p>
       <ul class="space-y-0.5 text-xs">
         <li v-for="(r, i) in triggerResult" :key="i">
           Step {{ r.step_order }}:
           <template v-if="r.error">
-            <span class="text-red-600">{{ r.error }}</span>
+            <span class="text-destructive">{{ r.error }}</span>
           </template>
           <template v-else-if="r.result">
             created {{ r.result.created }}, updated {{ r.result.updated }},
@@ -64,7 +64,7 @@
     </div>
     <div
       v-if="triggerError"
-      class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+      class="rounded-lg border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/20 p-4 text-sm text-red-700 dark:text-red-300"
     >
       {{ triggerError }}
     </div>
@@ -72,17 +72,17 @@
     <!-- Run history -->
     <AppCard>
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-sm font-semibold text-gray-700">Run History</h2>
+        <h2 class="text-sm font-semibold text-foreground">Run History</h2>
         <AppButton size="sm" variant="secondary" @click="loadRuns">Refresh</AppButton>
       </div>
 
-      <div v-if="loadingRuns" class="py-6 text-center text-sm text-gray-400">Loading…</div>
-      <div v-else-if="runs.length === 0" class="py-6 text-center text-sm text-gray-400">
+      <div v-if="loadingRuns" class="py-6 text-center text-sm text-muted-foreground">Loading…</div>
+      <div v-else-if="runs.length === 0" class="py-6 text-center text-sm text-muted-foreground">
         No runs yet. Trigger the pipeline to see results here.
       </div>
       <table v-else class="w-full text-sm">
         <thead>
-          <tr class="border-b border-gray-100 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          <tr class="border-b border-border text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             <th class="pb-2 pr-4">Status</th>
             <th class="pb-2 pr-4">Started</th>
             <th class="pb-2 pr-4">Duration</th>
@@ -92,32 +92,32 @@
             <th class="pb-2">Errors</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-50">
-          <tr v-for="run in runs" :key="run.id" class="hover:bg-gray-50">
+        <tbody class="divide-y divide-border">
+          <tr v-for="run in runs" :key="run.id" class="hover:bg-muted/50">
             <td class="py-3 pr-4">
               <AppBadge :color="statusColor(run.status)">{{ run.status }}</AppBadge>
             </td>
-            <td class="py-3 pr-4 text-gray-600 whitespace-nowrap">{{ formatDate(run.started_at) }}</td>
-            <td class="py-3 pr-4 text-gray-600">{{ formatDuration(run) }}</td>
-            <td class="py-3 pr-4 text-gray-700">{{ run.created_count }}</td>
-            <td class="py-3 pr-4 text-gray-700">{{ run.updated_count }}</td>
-            <td class="py-3 pr-4 text-gray-700">{{ run.deleted_count }}</td>
+            <td class="py-3 pr-4 text-muted-foreground whitespace-nowrap">{{ formatDateTime(run.started_at) }}</td>
+            <td class="py-3 pr-4 text-muted-foreground">{{ formatDuration(run) }}</td>
+            <td class="py-3 pr-4 text-foreground">{{ run.created_count }}</td>
+            <td class="py-3 pr-4 text-foreground">{{ run.updated_count }}</td>
+            <td class="py-3 pr-4 text-foreground">{{ run.deleted_count }}</td>
             <td class="py-3">
-              <span :class="run.error_count > 0 ? 'text-red-600 font-medium' : 'text-gray-700'">
+              <span :class="run.error_count > 0 ? 'text-destructive font-medium' : 'text-foreground'">
                 {{ run.error_count }}
               </span>
             </td>
           </tr>
         </tbody>
       </table>
-      <p v-if="runs.some(r => r.error_message)" class="mt-3 text-xs text-red-600">
+      <p v-if="runs.some(r => r.error_message)" class="mt-3 text-xs text-destructive">
         Last error: {{ runs.find(r => r.error_message)?.error_message }}
       </p>
     </AppCard>
 
     <!-- Back link -->
     <div>
-      <button class="text-sm text-indigo-600 hover:underline" @click="router.push({ name: 'pipelines' })">
+      <button class="text-sm text-accent hover:text-accent/80 hover:underline" @click="router.push({ name: 'pipelines' })">
         ← Back to Pipelines
       </button>
     </div>
@@ -133,6 +133,7 @@ import { humanizeCron } from '@/utils/cron'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
+import { formatDateTime } from '@/utils/date'
 
 const route = useRoute()
 const router = useRouter()
@@ -184,9 +185,6 @@ function statusColor(status: string): 'green' | 'red' | 'gray' | 'blue' {
   return 'gray'
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString()
-}
 
 function formatDuration(run: SyncRun) {
   if (!run.finished_at) return 'running…'

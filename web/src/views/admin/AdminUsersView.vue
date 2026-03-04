@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold text-gray-900">Users</h1>
+      <h1 class="text-2xl font-bold text-foreground">Users</h1>
       <RouterLink to="/admin/users/new">
         <AppButton>Create User</AppButton>
       </RouterLink>
@@ -10,22 +10,22 @@
     <AppCard>
       <AppTable :columns="columns" :rows="users" :loading="loading" empty-text="No users found">
         <template #body="{ rows }">
-          <tr v-for="u in (rows as User[])" :key="u.id" class="hover:bg-gray-50">
-            <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ u.email }}</td>
-            <td class="px-6 py-4 text-sm text-gray-500">{{ u.display_name }}</td>
-            <td class="px-6 py-4 text-sm">
+          <tr v-for="u in (rows as User[])" :key="u.id" class="hover:bg-muted/50">
+            <td class="px-4 py-4 text-sm font-medium text-foreground">{{ u.email }}</td>
+            <td class="px-4 py-4 text-sm text-muted-foreground">{{ u.display_name }}</td>
+            <td class="px-4 py-4 text-sm">
               <select
                 :value="u.role"
-                class="rounded-md border-gray-300 text-sm px-2 py-1 border"
+                class="rounded-md border-input bg-background text-foreground text-sm px-2 py-1 border"
                 @change="handleRoleChange(u.id, ($event.target as HTMLSelectElement).value)"
               >
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
               </select>
             </td>
-            <td class="px-6 py-4 text-sm text-gray-500">{{ formatDate(u.created_at) }}</td>
-            <td class="px-6 py-4 text-sm text-right">
-              <button class="text-red-600 hover:text-red-800" @click="confirmDelete(u)">Delete</button>
+            <td class="px-4 py-4 text-sm text-muted-foreground">{{ formatDate(u.created_at) }}</td>
+            <td class="px-4 py-4 text-sm text-right">
+              <button class="text-destructive hover:text-destructive/80" @click="confirmDelete(u)">Delete</button>
             </td>
           </tr>
         </template>
@@ -52,6 +52,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppTable from '@/components/ui/AppTable.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { formatDate } from '@/utils/date'
 
 const users = ref<User[]>([])
 const loading = ref(true)
@@ -93,9 +94,4 @@ async function handleDelete() {
   await load()
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'short', day: 'numeric',
-  })
-}
 </script>

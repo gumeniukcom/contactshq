@@ -1,23 +1,23 @@
 <template>
   <div
     v-if="selectedCount > 0"
-    class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white rounded-xl shadow-2xl px-6 py-3 flex items-center gap-4"
+    class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-primary text-primary-foreground dark:bg-zinc-800/90 dark:backdrop-blur-lg dark:text-foreground rounded-xl shadow-2xl px-6 py-3 flex items-center gap-4"
   >
     <span class="text-sm font-medium">
       {{ selectedCount }} selected
     </span>
     <button
       v-if="selectedCount < totalCount"
-      class="text-sm text-indigo-300 hover:text-indigo-200"
+      class="text-sm text-accent hover:text-accent/80"
       @click="$emit('selectAll')"
     >
       Select all {{ totalCount }}
     </button>
 
-    <div class="h-5 w-px bg-gray-600" />
+    <div class="h-5 w-px bg-muted-foreground/30" />
 
     <button
-      class="inline-flex items-center gap-1.5 text-sm hover:text-indigo-300 transition-colors"
+      class="inline-flex items-center gap-1.5 text-sm hover:text-accent transition-colors"
       @click="$emit('export')"
     >
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -37,7 +37,7 @@
     </button>
 
     <button
-      class="ml-2 text-gray-400 hover:text-white"
+      class="ml-2 text-muted-foreground hover:text-primary-foreground dark:hover:text-foreground"
       @click="$emit('close')"
     >
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

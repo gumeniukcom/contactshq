@@ -1,6 +1,6 @@
 <template>
   <div class="max-w-2xl">
-    <h1 class="text-2xl font-bold text-gray-900 mb-6">Import Contacts</h1>
+    <h1 class="text-2xl font-bold text-foreground mb-6">Import Contacts</h1>
 
     <div class="flex gap-2 mb-6">
       <button
@@ -8,7 +8,7 @@
         :key="t"
         :class="[
           'px-4 py-2 text-sm font-medium rounded-md',
-          tab === t ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50',
+          tab === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground border border-input hover:bg-secondary/80',
         ]"
         @click="tab = t"
       >
@@ -25,13 +25,13 @@
         </AppButton>
       </div>
 
-      <div v-if="result" class="mt-6 p-4 rounded-md bg-gray-50 border border-gray-200">
+      <div v-if="result" class="mt-6 p-4 rounded-md bg-muted/50 border border-border">
         <p class="text-sm">
-          <span class="font-medium text-green-700">Imported: {{ result.imported }}</span>
-          <span class="mx-2 text-gray-300">|</span>
-          <span class="text-gray-600">Skipped: {{ result.skipped }}</span>
+          <span class="font-medium text-green-700 dark:text-green-400">Imported: {{ result.imported }}</span>
+          <span class="mx-2 text-border">|</span>
+          <span class="text-muted-foreground">Skipped: {{ result.skipped }}</span>
         </p>
-        <ul v-if="result.errors?.length" class="mt-2 text-sm text-red-600 list-disc list-inside">
+        <ul v-if="result.errors?.length" class="mt-2 text-sm text-destructive list-disc list-inside">
           <li v-for="(err, i) in result.errors" :key="i">{{ err }}</li>
         </ul>
       </div>

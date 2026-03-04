@@ -1,6 +1,6 @@
 <template>
-  <div class="bg-white rounded-lg shadow border border-gray-200 p-6">
-    <h3 v-if="title" class="text-lg font-medium text-gray-900 mb-4">{{ title }}</h3>
+  <div class="bg-card rounded-lg border border-border p-4">
+    <h3 v-if="title" class="text-lg font-medium text-card-foreground mb-4">{{ title }}</h3>
     <slot />
   </div>
 </template>

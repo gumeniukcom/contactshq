@@ -1,6 +1,6 @@
 <template>
   <div>
-    <label v-if="label" :for="id" class="block text-sm font-medium text-gray-700 mb-1">
+    <label v-if="label" :for="id" class="block text-sm font-medium text-foreground mb-1">
       {{ label }}
     </label>
     <div :class="type === 'password' ? 'relative' : ''">
@@ -11,14 +11,14 @@
         :placeholder="placeholder"
         :disabled="disabled"
         autocomplete="off"
-        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border disabled:bg-gray-100 disabled:cursor-not-allowed"
-        :class="[{ 'border-red-500': error }, type === 'password' ? 'pr-9' : '']"
+        class="block w-full rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-ring sm:text-sm px-3 py-2 disabled:bg-muted disabled:cursor-not-allowed"
+        :class="[{ 'border-destructive': error }, type === 'password' ? 'pr-9' : '']"
         @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
       />
       <button
         v-if="type === 'password'"
         type="button"
-        class="absolute inset-y-0 right-0 flex items-center pr-2 text-gray-400 hover:text-gray-600"
+        class="absolute inset-y-0 right-0 flex items-center pr-2 text-muted-foreground hover:text-foreground"
         @click="visible = !visible"
       >
         <svg v-if="visible" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -30,7 +30,7 @@
         </svg>
       </button>
     </div>
-    <p v-if="error" class="mt-1 text-sm text-red-600">{{ error }}</p>
+    <p v-if="error" class="mt-1 text-sm text-destructive">{{ error }}</p>
   </div>
 </template>
 

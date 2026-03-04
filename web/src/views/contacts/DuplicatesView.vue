@@ -2,11 +2,11 @@
   <div class="max-w-3xl space-y-6">
     <!-- Dedup Schedule Settings -->
     <AppCard>
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Automatic Detection</h2>
+      <h2 class="text-lg font-semibold text-foreground mb-4">Automatic Detection</h2>
       <div class="space-y-4">
         <label class="flex items-center gap-3 cursor-pointer">
-          <input type="checkbox" v-model="dedupSettings.enabled" class="h-4 w-4 text-indigo-600 rounded" />
-          <span class="text-sm font-medium text-gray-700">Enable scheduled duplicate detection</span>
+          <input type="checkbox" v-model="dedupSettings.enabled" class="h-4 w-4 text-accent rounded" />
+          <span class="text-sm font-medium text-foreground">Enable scheduled duplicate detection</span>
         </label>
 
         <ScheduleInput
@@ -19,19 +19,19 @@
 
       <div class="mt-5 flex items-center gap-3">
         <AppButton :loading="savingDedupSettings" @click="handleSaveDedupSettings">Save Settings</AppButton>
-        <span v-if="dedupSettingsSaved" class="text-sm text-green-600">Settings saved</span>
+        <span v-if="dedupSettingsSaved" class="text-sm text-green-600 dark:text-green-400">Settings saved</span>
       </div>
     </AppCard>
 
     <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-bold text-gray-900">
+      <h1 class="text-2xl font-bold text-foreground">
         Potential Duplicates
-        <span v-if="total > 0" class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+        <span v-if="total > 0" class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 dark:bg-orange-500/20 text-orange-800 dark:text-orange-300">
           {{ total }}
         </span>
       </h1>
       <div class="flex gap-2">
-        <select v-model="statusFilter" class="text-sm rounded-md border-gray-300 border px-3 py-2">
+        <select v-model="statusFilter" class="text-sm rounded-md border-input border px-3 py-2">
           <option value="pending">Pending</option>
           <option value="dismissed">Dismissed</option>
           <option value="merged">Merged</option>
@@ -43,13 +43,13 @@
       </div>
     </div>
 
-    <p v-if="detectMsg" class="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+    <p v-if="detectMsg" class="mb-4 text-sm text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-500/20 border border-green-200 dark:border-green-500/30 rounded px-3 py-2">
       {{ detectMsg }}
     </p>
 
-    <div v-if="loading" class="py-8 text-center text-gray-400">Loading…</div>
-    <div v-else-if="duplicates.length === 0" class="py-12 text-center text-gray-400">
-      <svg class="mx-auto h-12 w-12 text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <div v-if="loading" class="py-8 text-center text-muted-foreground">Loading…</div>
+    <div v-else-if="duplicates.length === 0" class="py-12 text-center text-muted-foreground">
+      <svg class="mx-auto h-12 w-12 text-muted-foreground/60 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
           d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
@@ -60,41 +60,41 @@
       <div
         v-for="dup in duplicates"
         :key="dup.id"
-        class="bg-white rounded-lg border border-gray-200 overflow-hidden"
+        class="bg-card rounded-lg border border-border overflow-hidden"
       >
         <!-- Header row -->
-        <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <div class="px-4 py-3 bg-muted/50 border-b border-border flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 text-orange-700">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300">
               {{ Math.round(dup.score * 100) }}% match
             </span>
-            <span class="text-xs text-gray-500">{{ parsedReasons(dup).join(', ') }}</span>
+            <span class="text-xs text-muted-foreground">{{ parsedReasons(dup).join(', ') }}</span>
           </div>
           <div class="flex gap-3">
             <button
               v-if="dup.status === 'pending'"
-              class="text-xs text-gray-400 hover:text-gray-600"
+              class="text-xs text-muted-foreground hover:text-foreground"
               @click="dismiss(dup.id)"
             >Dismiss</button>
           </div>
         </div>
 
         <!-- Contact pair comparison -->
-        <div v-if="dup.contact_a && dup.contact_b" class="grid grid-cols-2 divide-x divide-gray-200">
+        <div v-if="dup.contact_a && dup.contact_b" class="grid grid-cols-2 divide-x divide-border">
           <!-- Contact A -->
           <div class="p-4">
-            <p class="text-xs font-semibold text-gray-400 uppercase mb-2">Contact A</p>
+            <p class="text-xs font-semibold text-muted-foreground uppercase mb-2">Contact A</p>
             <ContactSummary :contact="dup.contact_a" />
           </div>
           <!-- Contact B -->
           <div class="p-4">
-            <p class="text-xs font-semibold text-gray-400 uppercase mb-2">Contact B</p>
+            <p class="text-xs font-semibold text-muted-foreground uppercase mb-2">Contact B</p>
             <ContactSummary :contact="dup.contact_b" />
           </div>
         </div>
 
         <!-- Merge controls (only for pending) -->
-        <div v-if="dup.status === 'pending' && dup.contact_a && dup.contact_b" class="px-4 py-3 border-t border-gray-200 bg-gray-50 flex gap-3">
+        <div v-if="dup.status === 'pending' && dup.contact_a && dup.contact_b" class="px-4 py-3 border-t border-border bg-muted/50 flex gap-3">
           <AppButton size="sm" :loading="mergingId === dup.id + '_a'" @click="quickMerge(dup, 'a')">
             Keep A
           </AppButton>
@@ -103,7 +103,7 @@
           </AppButton>
           <RouterLink
             :to="{ name: 'contact-merge', params: { dupId: dup.id } }"
-            class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md border border-input bg-card text-foreground hover:bg-muted/50"
           >
             Advanced merge
           </RouterLink>
@@ -114,7 +114,7 @@
     <!-- Pagination -->
     <div v-if="total > limit" class="mt-6 flex justify-center gap-2">
       <AppButton size="sm" variant="secondary" :disabled="offset === 0" @click="prevPage">Previous</AppButton>
-      <span class="text-sm text-gray-500 self-center">{{ page + 1 }} / {{ Math.ceil(total / limit) }}</span>
+      <span class="text-sm text-muted-foreground self-center">{{ page + 1 }} / {{ Math.ceil(total / limit) }}</span>
       <AppButton size="sm" variant="secondary" :disabled="offset + limit >= total" @click="nextPage">Next</AppButton>
     </div>
   </div>
@@ -135,11 +135,11 @@ const ContactSummary = defineComponent({
   props: { contact: { type: Object as () => Contact, required: true } },
   setup(props) {
     return () => h('div', { class: 'space-y-1 text-sm' }, [
-      h('p', { class: 'font-medium text-gray-900' },
+      h('p', { class: 'font-medium text-foreground' },
         [props.contact.first_name, props.contact.last_name].filter(Boolean).join(' ') || '(no name)'),
-      props.contact.email ? h('p', { class: 'text-gray-500' }, props.contact.email) : null,
-      props.contact.phone ? h('p', { class: 'text-gray-500' }, props.contact.phone) : null,
-      props.contact.org ? h('p', { class: 'text-gray-400 text-xs' }, props.contact.org) : null,
+      props.contact.email ? h('p', { class: 'text-muted-foreground' }, props.contact.email) : null,
+      props.contact.phone ? h('p', { class: 'text-muted-foreground' }, props.contact.phone) : null,
+      props.contact.org ? h('p', { class: 'text-muted-foreground text-xs' }, props.contact.org) : null,
     ].filter(Boolean))
   }
 })

@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold text-gray-900">Pipelines</h1>
+      <h1 class="text-2xl font-bold text-foreground">Pipelines</h1>
       <RouterLink to="/pipelines/new">
         <AppButton>Create Pipeline</AppButton>
       </RouterLink>
@@ -13,16 +13,16 @@
           <tr
             v-for="p in (rows as Pipeline[])"
             :key="p.id"
-            class="hover:bg-gray-50 cursor-pointer"
+            class="hover:bg-muted/50 cursor-pointer"
             @click="router.push({ name: 'pipeline-view', params: { id: p.id } })"
           >
-            <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ p.name }}</td>
+            <td class="px-6 py-4 text-sm font-medium text-foreground">{{ p.name }}</td>
             <td class="px-6 py-4 text-sm">
               <AppBadge :color="p.enabled ? 'green' : 'gray'">
                 {{ p.enabled ? 'Enabled' : 'Disabled' }}
               </AppBadge>
             </td>
-            <td class="px-6 py-4 text-sm text-gray-500">{{ p.schedule ? humanizeCron(p.schedule) : '—' }}</td>
+            <td class="px-6 py-4 text-sm text-muted-foreground">{{ p.schedule ? humanizeCron(p.schedule) : '—' }}</td>
             <td class="px-6 py-4 text-sm text-right space-x-2 whitespace-nowrap">
               <AppButton size="sm" variant="secondary" @click.stop="handleTrigger(p.id)">
                 Trigger

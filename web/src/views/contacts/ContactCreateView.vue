@@ -1,6 +1,6 @@
 <template>
   <div class="max-w-2xl">
-    <h1 class="text-2xl font-bold text-gray-900 mb-6">Create Contact</h1>
+    <h1 class="text-2xl font-bold text-foreground mb-6">Create Contact</h1>
     <AppCard>
       <ContactForm
         ref="formRef"

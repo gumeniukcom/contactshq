@@ -1,7 +1,7 @@
 <template>
   <div class="max-w-2xl">
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold text-gray-900">Edit Contact</h1>
+      <h1 class="text-2xl font-bold text-foreground">Edit Contact</h1>
       <div class="flex gap-2">
         <AppButton variant="secondary" @click="downloadVCard">vCard</AppButton>
         <AppButton variant="secondary" @click="showQR = true">QR Code</AppButton>
@@ -10,7 +10,7 @@
     </div>
 
     <AppCard>
-      <div v-if="loadingContact" class="py-8 text-center text-gray-500">Loading...</div>
+      <div v-if="loadingContact" class="py-8 text-center text-muted-foreground">Loading...</div>
       <ContactForm
         v-else
         ref="formRef"
@@ -23,10 +23,10 @@
     </AppCard>
 
     <AppModal :show="showQR" @close="showQR = false">
-      <h3 class="text-lg font-medium text-gray-900 mb-4">QR Code</h3>
+      <h3 class="text-lg font-medium text-foreground mb-4">QR Code</h3>
       <div class="flex justify-center">
         <img v-if="qrUrl" :src="qrUrl" alt="QR Code" class="w-64 h-64" />
-        <p v-else class="text-gray-500">Loading...</p>
+        <p v-else class="text-muted-foreground">Loading...</p>
       </div>
     </AppModal>
 

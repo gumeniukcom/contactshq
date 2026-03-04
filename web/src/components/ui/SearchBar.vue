@@ -4,11 +4,11 @@
       :value="modelValue"
       type="text"
       :placeholder="placeholder"
-      class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm pl-10 pr-8 py-2 border"
+      class="block w-full rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-ring sm:text-sm pl-10 pr-8 py-2"
       @input="onInput"
     />
     <svg
-      class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+      class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -17,7 +17,7 @@
     </svg>
     <button
       v-if="modelValue"
-      class="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600"
+      class="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
       @click="$emit('update:modelValue', '')"
     >
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

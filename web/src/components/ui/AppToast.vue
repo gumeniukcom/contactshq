@@ -7,9 +7,9 @@
           :key="toast.id"
           :class="[
             'flex items-center gap-2 rounded-lg px-4 py-3 shadow-lg text-sm min-w-[300px]',
-            toast.type === 'success' ? 'bg-green-600 text-white' : '',
-            toast.type === 'error' ? 'bg-red-600 text-white' : '',
-            toast.type === 'info' ? 'bg-indigo-600 text-white' : '',
+            toast.type === 'success' ? 'bg-green-600 text-white dark:bg-green-500/90' : '',
+            toast.type === 'error' ? 'bg-destructive text-destructive-foreground' : '',
+            toast.type === 'info' ? 'bg-accent text-accent-foreground' : '',
           ]"
         >
           <span class="flex-1">{{ toast.message }}</span>

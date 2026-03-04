@@ -1,15 +1,15 @@
 <template>
-  <div class="p-3 bg-gray-50 rounded border border-gray-200 space-y-2">
-    <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+  <div class="p-3 bg-muted/50 rounded border border-border space-y-2">
+    <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
       {{ side === 'src' ? 'Source' : 'Destination' }} CardDAV
     </p>
 
     <!-- Credential selector -->
     <div>
-      <label class="block text-xs text-gray-500 mb-1">Credential</label>
+      <label class="block text-xs text-muted-foreground mb-1">Credential</label>
       <select
         :value="modelValue.credential_id"
-        class="block w-full rounded-md border-gray-300 text-sm px-3 py-2 border"
+        class="block w-full rounded-md border-input text-sm px-3 py-2 border"
         @change="onCredentialChange"
       >
         <option value="">— Enter manually —</option>
@@ -46,22 +46,22 @@
           :id="`${side}-tls-${index}`"
           :checked="modelValue.skip_tls_verify"
           type="checkbox"
-          class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+          class="rounded border-input text-accent focus:ring-ring"
           @change="update('skip_tls_verify', ($event.target as HTMLInputElement).checked)"
         />
-        <label :for="`${side}-tls-${index}`" class="text-xs text-gray-600">
+        <label :for="`${side}-tls-${index}`" class="text-xs text-muted-foreground">
           Skip TLS/SSL verification
         </label>
       </div>
     </template>
 
     <!-- Credential summary when selected -->
-    <div v-else class="text-xs text-gray-500 flex items-center gap-1">
-      <svg class="h-3.5 w-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <div v-else class="text-xs text-muted-foreground flex items-center gap-1">
+      <svg class="h-3.5 w-3.5 text-green-500 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
       </svg>
       Using saved credential "{{ selectedCredentialName }}"
-      <RouterLink to="/credentials" class="text-indigo-500 hover:underline ml-1">manage</RouterLink>
+      <RouterLink to="/credentials" class="text-accent hover:text-accent/80 hover:underline ml-1">manage</RouterLink>
     </div>
   </div>
 </template>

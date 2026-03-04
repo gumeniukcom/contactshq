@@ -3,14 +3,14 @@
     <!-- Category multi-select dropdown -->
     <div class="relative" ref="catDropdownRef">
       <button
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50"
-        :class="selectedCategories.length > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-gray-300 text-gray-700'"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-muted/50"
+        :class="selectedCategories.length > 0 ? 'border-accent bg-accent/10 text-accent' : 'border-input text-foreground'"
         @click="showCatDropdown = !showCatDropdown"
       >
         Tags
         <span
           v-if="selectedCategories.length > 0"
-          class="inline-flex items-center justify-center w-5 h-5 text-xs font-medium rounded-full bg-indigo-600 text-white"
+          class="inline-flex items-center justify-center w-5 h-5 text-xs font-medium rounded-full bg-accent text-accent-foreground"
         >
           {{ selectedCategories.length }}
         </span>
@@ -20,17 +20,17 @@
       </button>
       <div
         v-if="showCatDropdown && categories.length > 0"
-        class="absolute z-30 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-1 max-h-60 overflow-y-auto"
+        class="absolute z-30 mt-1 w-56 bg-card border border-border rounded-lg shadow-lg py-1 max-h-60 overflow-y-auto"
       >
         <label
           v-for="cat in categories"
           :key="cat"
-          class="flex items-center px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+          class="flex items-center px-3 py-1.5 hover:bg-muted/50 cursor-pointer text-sm"
         >
           <input
             type="checkbox"
             :checked="selectedCategories.includes(cat)"
-            class="rounded border-gray-300 text-indigo-600 mr-2"
+            class="rounded border-input text-accent mr-2"
             @change="toggleCategory(cat)"
           />
           {{ cat }}
@@ -41,8 +41,8 @@
     <!-- Org dropdown -->
     <div class="relative" ref="orgDropdownRef">
       <button
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50"
-        :class="selectedOrg ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-gray-300 text-gray-700'"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-muted/50"
+        :class="selectedOrg ? 'border-accent bg-accent/10 text-accent' : 'border-input text-foreground'"
         @click="showOrgDropdown = !showOrgDropdown"
       >
         {{ selectedOrg || 'Organization' }}
@@ -52,11 +52,11 @@
       </button>
       <div
         v-if="showOrgDropdown && orgs.length > 0"
-        class="absolute z-30 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-1 max-h-60 overflow-y-auto"
+        class="absolute z-30 mt-1 w-56 bg-card border border-border rounded-lg shadow-lg py-1 max-h-60 overflow-y-auto"
       >
         <button
           v-if="selectedOrg"
-          class="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-50"
+          class="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50"
           @click="$emit('update:org', ''); showOrgDropdown = false"
         >
           All organizations
@@ -64,8 +64,8 @@
         <button
           v-for="org in orgs"
           :key="org"
-          class="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50"
-          :class="org === selectedOrg ? 'text-indigo-600 font-medium' : 'text-gray-700'"
+          class="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50"
+          :class="org === selectedOrg ? 'text-accent font-medium' : 'text-foreground'"
           @click="$emit('update:org', org); showOrgDropdown = false"
         >
           {{ org }}
@@ -76,7 +76,7 @@
     <!-- Has email pill -->
     <button
       class="px-3 py-1.5 text-sm border rounded-lg"
-      :class="hasEmail ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'"
+      :class="hasEmail ? 'border-accent bg-accent/10 text-accent' : 'border-input text-foreground hover:bg-muted/50'"
       @click="$emit('update:hasEmail', !hasEmail)"
     >
       Has email
@@ -85,7 +85,7 @@
     <!-- Has phone pill -->
     <button
       class="px-3 py-1.5 text-sm border rounded-lg"
-      :class="hasPhone ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'"
+      :class="hasPhone ? 'border-accent bg-accent/10 text-accent' : 'border-input text-foreground hover:bg-muted/50'"
       @click="$emit('update:hasPhone', !hasPhone)"
     >
       Has phone
@@ -94,7 +94,7 @@
     <!-- Clear filters -->
     <button
       v-if="activeCount > 0"
-      class="px-3 py-1.5 text-sm text-indigo-600 hover:text-indigo-800"
+      class="px-3 py-1.5 text-sm text-accent hover:text-accent/80"
       @click="$emit('clear')"
     >
       Clear filters

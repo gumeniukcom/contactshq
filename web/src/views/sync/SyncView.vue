@@ -1,14 +1,14 @@
 <template>
   <div class="max-w-2xl space-y-6">
-    <h1 class="text-2xl font-bold text-gray-900">Sync</h1>
+    <h1 class="text-2xl font-bold text-foreground">Sync</h1>
 
     <!-- Connected providers -->
     <AppCard>
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Connected Providers</h2>
+      <h2 class="text-lg font-semibold text-foreground mb-4">Connected Providers</h2>
 
-      <div v-if="loadingProviders" class="text-sm text-gray-400">Loading…</div>
+      <div v-if="loadingProviders" class="text-sm text-muted-foreground">Loading...</div>
 
-      <div v-else-if="providers.length === 0" class="text-sm text-gray-500 py-2">
+      <div v-else-if="providers.length === 0" class="text-sm text-muted-foreground py-2">
         No providers connected yet. Add a CardDAV connection below.
       </div>
 
@@ -16,20 +16,20 @@
         <div
           v-for="p in providers"
           :key="p.id"
-          class="flex items-start justify-between rounded-lg border border-gray-200 p-4"
+          class="flex items-start justify-between rounded-lg border border-border p-4"
         >
           <div class="min-w-0">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-900">{{ p.name }}</span>
+              <span class="text-sm font-medium text-foreground">{{ p.name }}</span>
               <AppBadge :color="p.connected ? 'green' : 'gray'">
                 {{ p.connected ? 'Connected' : 'Disconnected' }}
               </AppBadge>
             </div>
-            <p class="text-xs text-gray-500 mt-0.5 truncate">{{ p.endpoint }}</p>
-            <p v-if="p.last_sync_at" class="text-xs text-gray-400 mt-0.5">
-              Last sync: {{ formatDate(p.last_sync_at) }}
+            <p class="text-xs text-muted-foreground mt-0.5 truncate">{{ p.endpoint }}</p>
+            <p v-if="p.last_sync_at" class="text-xs text-muted-foreground mt-0.5">
+              Last sync: {{ formatDateTime(p.last_sync_at) }}
             </p>
-            <p v-if="p.last_error" class="text-xs text-red-500 mt-0.5">{{ p.last_error }}</p>
+            <p v-if="p.last_error" class="text-xs text-red-500 dark:text-red-400 mt-0.5">{{ p.last_error }}</p>
           </div>
 
           <div class="flex gap-2 ml-4 shrink-0">
@@ -56,44 +56,44 @@
 
     <!-- Connect CardDAV -->
     <AppCard>
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">
+      <h2 class="text-lg font-semibold text-foreground mb-4">
         {{ hasCardDAV ? 'Update CardDAV Connection' : 'Connect CardDAV' }}
       </h2>
 
       <form @submit.prevent="handleConnect" class="space-y-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Server URL</label>
+          <label class="block text-sm font-medium text-foreground mb-1">Server URL</label>
           <input
             v-model="form.url"
             type="url"
             placeholder="https://dav.example.com/addressbooks/user/"
             required
-            class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            class="block w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+            <label class="block text-sm font-medium text-foreground mb-1">Username</label>
             <input
               v-model="form.username"
               type="text"
               autocomplete="off"
-              class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              class="block w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label class="block text-sm font-medium text-foreground mb-1">Password</label>
             <div class="relative">
               <input
                 v-model="form.password"
                 :type="showPassword ? 'text' : 'password'"
                 autocomplete="off"
-                class="block w-full rounded-md border border-gray-300 px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                class="block w-full rounded-md border border-input bg-card px-3 py-2 pr-9 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <button
                 type="button"
-                class="absolute inset-y-0 right-0 flex items-center pr-2 text-gray-400 hover:text-gray-600"
+                class="absolute inset-y-0 right-0 flex items-center pr-2 text-muted-foreground hover:text-foreground"
                 @click="showPassword = !showPassword"
               >
                 <svg v-if="showPassword" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -113,11 +113,11 @@
             id="skip-tls"
             v-model="form.skipTLS"
             type="checkbox"
-            class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            class="rounded border-input text-primary focus:ring-ring"
           />
-          <label for="skip-tls" class="text-sm text-gray-700">
+          <label for="skip-tls" class="text-sm text-foreground">
             Skip TLS/SSL certificate verification
-            <span class="text-xs text-gray-400">(use for self-signed certs)</span>
+            <span class="text-xs text-muted-foreground">(use for self-signed certs)</span>
           </label>
         </div>
 
@@ -125,8 +125,8 @@
           <AppButton type="submit" :loading="connecting">
             {{ hasCardDAV ? 'Update' : 'Connect' }}
           </AppButton>
-          <span v-if="connectSuccess" class="text-sm text-green-600">Connected successfully</span>
-          <span v-if="connectError" class="text-sm text-red-600">{{ connectError }}</span>
+          <span v-if="connectSuccess" class="text-sm text-green-600 dark:text-green-400">Connected successfully</span>
+          <span v-if="connectError" class="text-sm text-destructive">{{ connectError }}</span>
         </div>
       </form>
     </AppCard>
@@ -140,6 +140,7 @@ import type { SyncProvider } from '@/types'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
+import { formatDateTime } from '@/utils/date'
 
 // ── Providers list ─────────────────────────────────────────────────────────
 const providers = ref<SyncProvider[]>([])
@@ -213,9 +214,4 @@ async function handleConnect() {
 onMounted(loadProviders)
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
-}
 </script>

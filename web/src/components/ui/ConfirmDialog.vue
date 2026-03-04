@@ -1,17 +1,17 @@
 <template>
   <AppModal :show="show" @close="$emit('cancel')">
-    <h3 class="text-lg font-medium text-gray-900 mb-2">{{ title }}</h3>
-    <p class="text-sm text-gray-500 mb-4">{{ message }}</p>
+    <h3 class="text-lg font-medium text-foreground mb-2">{{ title }}</h3>
+    <p class="text-sm text-muted-foreground mb-4">{{ message }}</p>
 
     <div v-if="requireText" class="mb-6">
-      <label class="block text-sm font-medium text-gray-700 mb-1">
-        Type <span class="font-mono font-bold text-gray-900">{{ requireText }}</span> to confirm
+      <label class="block text-sm font-medium text-foreground mb-1">
+        Type <span class="font-mono font-bold text-foreground">{{ requireText }}</span> to confirm
       </label>
       <input
         v-model="typed"
         type="text"
         autocomplete="off"
-        class="block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm px-3 py-2 border"
+        class="block w-full rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:border-destructive focus:ring-destructive sm:text-sm px-3 py-2"
         :placeholder="requireText"
       />
     </div>

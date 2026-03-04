@@ -1,39 +1,39 @@
 <template>
   <div class="max-w-2xl">
     <div class="flex items-center gap-3 mb-6">
-      <RouterLink to="/contacts/duplicates" class="text-sm text-gray-500 hover:text-gray-700">
+      <RouterLink to="/contacts/duplicates" class="text-sm text-muted-foreground hover:text-foreground">
         ← Duplicates
       </RouterLink>
-      <h1 class="text-2xl font-bold text-gray-900">Advanced Merge</h1>
+      <h1 class="text-2xl font-bold text-foreground">Advanced Merge</h1>
     </div>
 
-    <div v-if="loading" class="py-8 text-center text-gray-400">Loading…</div>
-    <div v-else-if="!dup" class="py-8 text-center text-gray-400">Duplicate pair not found.</div>
+    <div v-if="loading" class="py-8 text-center text-muted-foreground">Loading…</div>
+    <div v-else-if="!dup" class="py-8 text-center text-muted-foreground">Duplicate pair not found.</div>
 
     <template v-else>
       <!-- Score header -->
       <div class="mb-4 flex items-center gap-3">
-        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 text-orange-700">
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300">
           {{ Math.round(dup.score * 100) }}% match
         </span>
-        <span class="text-xs text-gray-500">{{ parsedReasons.join(', ') }}</span>
+        <span class="text-xs text-muted-foreground">{{ parsedReasons.join(', ') }}</span>
       </div>
 
       <!-- Field-by-field picker -->
-      <div class="bg-white rounded-lg border border-gray-200 overflow-hidden mb-6">
-        <div class="grid grid-cols-3 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase px-4 py-2">
+      <div class="bg-card rounded-lg border border-border overflow-hidden mb-6">
+        <div class="grid grid-cols-3 bg-muted/50 border-b border-border text-xs font-semibold text-muted-foreground uppercase px-4 py-2">
           <span>Field</span>
-          <span>Contact A <button class="ml-1 text-indigo-600 hover:underline" @click="keepAll('a')">Keep all A</button></span>
-          <span>Contact B <button class="ml-1 text-indigo-600 hover:underline" @click="keepAll('b')">Keep all B</button></span>
+          <span>Contact A <button class="ml-1 text-accent hover:underline" @click="keepAll('a')">Keep all A</button></span>
+          <span>Contact B <button class="ml-1 text-accent hover:underline" @click="keepAll('b')">Keep all B</button></span>
         </div>
 
         <div
           v-for="field in fields"
           :key="field.key"
-          class="grid grid-cols-3 px-4 py-3 border-b border-gray-100 last:border-b-0 items-start"
-          :class="{ 'bg-yellow-50': field.differs }"
+          class="grid grid-cols-3 px-4 py-3 border-b border-border last:border-b-0 items-start"
+          :class="{ 'bg-yellow-50 dark:bg-yellow-500/10': field.differs }"
         >
-          <span class="text-xs font-medium text-gray-500 pt-0.5 capitalize">{{ field.label }}</span>
+          <span class="text-xs font-medium text-muted-foreground pt-0.5 capitalize">{{ field.label }}</span>
 
           <!-- Contact A option -->
           <label class="flex items-start gap-2 cursor-pointer">
@@ -42,9 +42,9 @@
               :name="field.key"
               value="a"
               v-model="resolution[field.key]"
-              class="mt-0.5 text-indigo-600"
+              class="mt-0.5 text-accent"
             />
-            <span class="text-sm text-gray-800 break-all">{{ field.valueA || '—' }}</span>
+            <span class="text-sm text-foreground break-all">{{ field.valueA || '—' }}</span>
           </label>
 
           <!-- Contact B option -->
@@ -54,9 +54,9 @@
               :name="field.key"
               value="b"
               v-model="resolution[field.key]"
-              class="mt-0.5 text-indigo-600"
+              class="mt-0.5 text-accent"
             />
-            <span class="text-sm text-gray-800 break-all">{{ field.valueB || '—' }}</span>
+            <span class="text-sm text-foreground break-all">{{ field.valueB || '—' }}</span>
           </label>
         </div>
       </div>
@@ -66,13 +66,13 @@
         <AppButton :loading="merging" @click="doMerge">Merge contacts</AppButton>
         <RouterLink
           to="/contacts/duplicates"
-          class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+          class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md border border-input bg-card text-foreground hover:bg-muted/50"
         >
           Cancel
         </RouterLink>
       </div>
 
-      <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" class="mt-3 text-sm text-destructive">{{ error }}</p>
     </template>
   </div>
 </template>

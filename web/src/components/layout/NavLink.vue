@@ -8,8 +8,8 @@
       :class="[
         'w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors',
         (exact ? isExactActive : isActive)
-          ? 'bg-indigo-50 text-indigo-700'
-          : 'text-gray-700 hover:bg-gray-100',
+          ? 'bg-accent/10 text-accent'
+          : 'text-foreground hover:bg-muted',
       ]"
       @click="navigate"
     >

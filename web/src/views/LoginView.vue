@@ -1,12 +1,12 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+  <div class="min-h-screen flex items-center justify-center bg-background px-4">
     <div class="w-full max-w-md">
       <div class="text-center mb-8">
-        <h1 class="text-3xl font-bold text-gray-900">ContactsHQ</h1>
-        <p class="mt-2 text-sm text-gray-600">Sign in to your account</p>
+        <h1 class="text-3xl font-bold text-foreground">ContactsHQ</h1>
+        <p class="mt-2 text-sm text-muted-foreground">Sign in to your account</p>
       </div>
 
-      <div class="bg-white rounded-lg shadow border border-gray-200 p-8">
+      <div class="bg-card rounded-lg border border-border p-8">
         <form class="space-y-4" @submit.prevent="handleLogin">
           <AppInput
             v-model="email"

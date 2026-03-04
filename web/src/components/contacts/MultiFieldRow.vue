@@ -1,8 +1,8 @@
 <template>
   <div class="space-y-2">
-    <label v-if="label" class="block text-sm font-medium text-gray-700">{{ label }}</label>
+    <label v-if="label" class="block text-sm font-medium text-foreground">{{ label }}</label>
 
-    <div v-if="modelValue.length === 0" class="text-sm text-gray-400 italic">No {{ addLabel || label?.toLowerCase() }}</div>
+    <div v-if="modelValue.length === 0" class="text-sm text-muted-foreground italic">No {{ addLabel || label?.toLowerCase() }}</div>
 
     <div
       v-for="(item, i) in modelValue"
@@ -13,7 +13,7 @@
       <select
         v-if="typeOptions && typeOptions.length"
         :value="item.type"
-        class="w-28 flex-shrink-0 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-2 py-2 border bg-white"
+        class="w-28 flex-shrink-0 rounded-md border border-input bg-background text-foreground focus:border-ring focus:ring-ring sm:text-sm px-2 py-2"
         @change="updateType(i, ($event.target as HTMLSelectElement).value)"
       >
         <option value="">—</option>
@@ -27,14 +27,14 @@
         :type="inputType || 'text'"
         :value="item.value"
         :placeholder="placeholder"
-        class="flex-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border"
+        class="flex-1 block rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-ring sm:text-sm px-3 py-2"
         @input="updateValue(i, ($event.target as HTMLInputElement).value)"
       />
 
       <!-- Remove button -->
       <button
         type="button"
-        class="flex-shrink-0 text-gray-400 hover:text-red-600 transition-colors p-1"
+        class="flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors p-1"
         :aria-label="`Remove ${label?.toLowerCase()}`"
         @click="remove(i)"
       >
@@ -46,7 +46,7 @@
 
     <button
       type="button"
-      class="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+      class="text-sm text-accent hover:text-accent/80 font-medium"
       @click="add"
     >
       + Add {{ addLabel || label?.toLowerCase() }}

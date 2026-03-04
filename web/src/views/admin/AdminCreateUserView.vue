@@ -1,6 +1,6 @@
 <template>
   <div class="max-w-lg">
-    <h1 class="text-2xl font-bold text-gray-900 mb-6">Create User</h1>
+    <h1 class="text-2xl font-bold text-foreground mb-6">Create User</h1>
 
     <AppCard>
       <form class="space-y-4" @submit.prevent="handleCreate">
@@ -13,7 +13,7 @@
           <AppButton type="submit" :loading="loading">Create User</AppButton>
         </div>
 
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
       </form>
     </AppCard>
   </div>

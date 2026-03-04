@@ -1,6 +1,6 @@
 <template>
   <div class="max-w-lg">
-    <h1 class="text-2xl font-bold text-gray-900 mb-6">Profile</h1>
+    <h1 class="text-2xl font-bold text-foreground mb-6">Profile</h1>
 
     <AppCard>
       <form class="space-y-4" @submit.prevent="handleSave">
@@ -11,8 +11,8 @@
           <AppButton type="submit" :loading="loading">Save Changes</AppButton>
         </div>
 
-        <p v-if="success" class="text-sm text-green-600">Profile updated successfully.</p>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="success" class="text-sm text-green-600 dark:text-green-400">Profile updated successfully.</p>
+        <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
       </form>
     </AppCard>
   </div>

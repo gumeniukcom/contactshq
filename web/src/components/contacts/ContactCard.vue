@@ -1,7 +1,7 @@
 <template>
   <div
-    class="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-    :class="selected ? 'ring-2 ring-indigo-500 border-indigo-300' : 'border-gray-200'"
+    class="bg-card border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+    :class="selected ? 'ring-2 ring-ring border-accent' : 'border-border'"
     @click="$emit('select', contact)"
   >
     <div class="flex items-start gap-3">
@@ -10,7 +10,7 @@
         v-if="showCheckbox"
         type="checkbox"
         :checked="selected"
-        class="mt-1 rounded border-gray-300 text-indigo-600"
+        class="mt-1 rounded border-input text-accent"
         @click.stop
         @change="$emit('toggleSelect', contact.id)"
       />
@@ -22,30 +22,30 @@
         size="lg"
       />
       <div class="min-w-0 flex-1">
-        <h3 class="text-sm font-semibold text-gray-900 truncate">
-          <span v-if="contact.name_prefix" class="text-gray-500 font-normal">{{ contact.name_prefix }} </span>
+        <h3 class="text-sm font-semibold text-foreground truncate">
+          <span v-if="contact.name_prefix" class="text-muted-foreground font-normal">{{ contact.name_prefix }} </span>
           {{ displayName }}
-          <span v-if="contact.nickname" class="ml-1 text-gray-400 text-xs font-normal">"{{ contact.nickname }}"</span>
+          <span v-if="contact.nickname" class="ml-1 text-muted-foreground text-xs font-normal">"{{ contact.nickname }}"</span>
         </h3>
-        <p v-if="contact.org" class="text-sm text-gray-500 truncate">
+        <p v-if="contact.org" class="text-sm text-muted-foreground truncate">
           {{ contact.org }}
-          <span v-if="contact.title" class="text-gray-400"> · {{ contact.title }}</span>
+          <span v-if="contact.title" class="text-muted-foreground"> · {{ contact.title }}</span>
         </p>
-        <p v-if="primaryEmail" class="text-sm text-gray-500 truncate mt-1">{{ primaryEmail }}</p>
-        <p v-if="primaryPhone" class="text-sm text-gray-500 truncate">{{ primaryPhone }}</p>
+        <p v-if="primaryEmail" class="text-sm text-muted-foreground truncate mt-1">{{ primaryEmail }}</p>
+        <p v-if="primaryPhone" class="text-sm text-muted-foreground truncate">{{ primaryPhone }}</p>
 
         <!-- Category chips -->
         <div v-if="contact.categories?.length" class="flex flex-wrap gap-1 mt-2">
           <span
             v-for="cat in contact.categories.slice(0, 3)"
             :key="cat.id"
-            class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600"
+            class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground"
           >
             {{ cat.value }}
           </span>
           <span
             v-if="contact.categories.length > 3"
-            class="text-xs text-gray-400"
+            class="text-xs text-muted-foreground"
           >
             +{{ contact.categories.length - 3 }}
           </span>
