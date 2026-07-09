@@ -40,6 +40,42 @@ func GetUserEmail(ctx context.Context) string {
 	return v
 }
 
+// go-webdav resolves the kind of resource a request targets purely from the number of
+// path segments below the prefix: 1 = user principal, 2 = address book home set,
+// 3 = address book, 4 = address object. The layout below must keep those depths, or
+// the handler misroutes — a collection PROPFIND lists nothing and DELETE of a contact
+// is dispatched to DeleteAddressBook.
+//
+//	/dav/{email}/                            principal
+//	/dav/{email}/addressbooks/               home set
+//	/dav/{email}/addressbooks/contacts/      address book
+//	/dav/{email}/addressbooks/contacts/{uid}.vcf   address object
+const (
+	homeSetSegment     = "addressbooks"
+	addressBookSegment = "contacts"
+)
+
+// PrincipalPath is the CardDAV principal URL for a user, the value iOS configuration
+// profiles point at.
+func PrincipalPath(prefix, email string) string {
+	return prefix + "/" + email + "/"
+}
+
+// HomeSetPath is the address book home set URL for a user.
+func HomeSetPath(prefix, email string) string {
+	return PrincipalPath(prefix, email) + homeSetSegment + "/"
+}
+
+// AddressBookPath is the collection URL clients sync contacts from.
+func AddressBookPath(prefix, email string) string {
+	return HomeSetPath(prefix, email) + addressBookSegment + "/"
+}
+
+// AddressObjectPath is the URL of a single contact within the address book.
+func AddressObjectPath(prefix, email, uid string) string {
+	return AddressBookPath(prefix, email) + uid + ".vcf"
+}
+
 type Backend struct {
 	userRepo    repository.UserRepository
 	abRepo      repository.AddressBookRepository
@@ -61,7 +97,7 @@ func (b *Backend) CurrentUserPrincipal(ctx context.Context) (string, error) {
 	if email == "" {
 		return "", fmt.Errorf("no authenticated user")
 	}
-	return b.prefix + "/" + email + "/", nil
+	return PrincipalPath(b.prefix, email), nil
 }
 
 func (b *Backend) AddressBookHomeSetPath(ctx context.Context) (string, error) {
@@ -69,7 +105,7 @@ func (b *Backend) AddressBookHomeSetPath(ctx context.Context) (string, error) {
 	if email == "" {
 		return "", fmt.Errorf("no authenticated user")
 	}
-	return b.prefix + "/" + email + "/", nil
+	return HomeSetPath(b.prefix, email), nil
 }
 
 func (b *Backend) ListAddressBooks(ctx context.Context) ([]carddav.AddressBook, error) {
@@ -89,7 +125,7 @@ func (b *Backend) ListAddressBooks(ctx context.Context) ([]carddav.AddressBook, 
 	email := GetUserEmail(ctx)
 	return []carddav.AddressBook{
 		{
-			Path:        b.prefix + "/" + email + "/contacts/",
+			Path:        AddressBookPath(b.prefix, email),
 			Name:        ab.Name,
 			Description: ab.Description,
 		},
@@ -112,7 +148,7 @@ func (b *Backend) GetAddressBook(ctx context.Context, path string) (*carddav.Add
 
 	email := GetUserEmail(ctx)
 	return &carddav.AddressBook{
-		Path:        b.prefix + "/" + email + "/contacts/",
+		Path:        AddressBookPath(b.prefix, email),
 		Name:        ab.Name,
 		Description: ab.Description,
 	}, nil
@@ -178,7 +214,7 @@ func (b *Backend) ListAddressObjects(ctx context.Context, path string, req *card
 	email := GetUserEmail(ctx)
 	objects := make([]carddav.AddressObject, 0, len(contacts))
 	for _, c := range contacts {
-		objPath := b.prefix + "/" + email + "/contacts/" + c.UID + ".vcf"
+		objPath := AddressObjectPath(b.prefix, email, c.UID)
 		obj, err := contactToAddressObject(c, objPath)
 		if err != nil {
 			continue
@@ -309,7 +345,7 @@ func (b *Backend) DeleteAddressObject(ctx context.Context, path string) error {
 }
 
 func extractUIDFromPath(path string) string {
-	// Path format: /dav/{email}/contacts/{uid}.vcf
+	// Path format: /dav/{email}/addressbooks/contacts/{uid}.vcf
 	parts := strings.Split(strings.TrimSuffix(path, "/"), "/")
 	if len(parts) == 0 {
 		return ""

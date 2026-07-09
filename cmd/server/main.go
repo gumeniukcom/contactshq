@@ -32,6 +32,17 @@ var (
 	BuildTime = "unknown"
 )
 
+// webdavMethods are the RFC 4918 / RFC 6352 verbs the CardDAV server answers, none of
+// which are part of Fiber's default method set.
+var webdavMethods = []string{
+	"PROPFIND",
+	"PROPPATCH",
+	"REPORT",
+	"MKCOL",
+	"COPY",
+	"MOVE",
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -144,11 +155,16 @@ func main() {
 	sched.Start()
 	defer sched.Stop()
 
-	// Fiber app
+	// Fiber app.
+	//
+	// Fiber only routes methods listed in RequestMethods and answers 400 to anything
+	// else, so the CardDAV verbs must be registered here or the /dav mount is
+	// unreachable to every client.
 	app := fiber.New(fiber.Config{
-		AppName:      "ContactsHQ",
-		BodyLimit:    10 * 1024 * 1024, // 10MB
-		ErrorHandler: errorHandler,
+		AppName:        "ContactsHQ",
+		BodyLimit:      10 * 1024 * 1024, // 10MB
+		ErrorHandler:   errorHandler,
+		RequestMethods: append(fiber.DefaultMethods, webdavMethods...),
 	})
 
 	app.Use(recover.New())
@@ -156,29 +172,29 @@ func main() {
 	app.Use(middleware.RequestLogger(logger))
 
 	handler.Register(app, handler.Services{
-		Version:          Version,
-		BuildTime:        BuildTime,
-		Auth:             authService,
-		User:             userService,
-		Contact:          contactService,
-		Importer:         importerService,
-		Exporter:         exporterService,
-		QRCode:           qrcodeService,
-		Pipeline:         pipelineService,
-		Backup:           backupService,
-		Orchestrator:     orchestrator,
-		Worker:           gWorker,
-		SyncRunRepo:      syncRunRepo,
-		SyncStateRepo:    syncRepo,
-		SyncConflictRepo: syncConflictRepo,
-		ProviderConnRepo: providerConnRepo,
-		DupRepo:          dupRepo,
-		DupDetector:      dupDetector,
-		MergeService:     mergeService,
+		Version:           Version,
+		BuildTime:         BuildTime,
+		Auth:              authService,
+		User:              userService,
+		Contact:           contactService,
+		Importer:          importerService,
+		Exporter:          exporterService,
+		QRCode:            qrcodeService,
+		Pipeline:          pipelineService,
+		Backup:            backupService,
+		Orchestrator:      orchestrator,
+		Worker:            gWorker,
+		SyncRunRepo:       syncRunRepo,
+		SyncStateRepo:     syncRepo,
+		SyncConflictRepo:  syncConflictRepo,
+		ProviderConnRepo:  providerConnRepo,
+		DupRepo:           dupRepo,
+		DupDetector:       dupDetector,
+		MergeService:      mergeService,
 		DedupSettingsRepo: dedupSettingsRepo,
-		Scheduler:        sched,
-		GoogleOAuth:      googleOAuth,
-		AppPassword:      appPwService,
+		Scheduler:         sched,
+		GoogleOAuth:       googleOAuth,
+		AppPassword:       appPwService,
 	})
 
 	// RFC 6764 — CardDAV service discovery

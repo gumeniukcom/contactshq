@@ -168,7 +168,8 @@ DELETE /api/v1/app-passwords/:id
 
 GET    /api/v1/setup/ios-profile
 
-CardDAV: /dav/{email}/contacts/
+CardDAV principal:    /dav/{email}/
+CardDAV address book: /dav/{email}/addressbooks/contacts/
 .well-known/carddav → /dav/ (RFC 6764)
 ```
 

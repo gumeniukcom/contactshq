@@ -100,9 +100,11 @@ const copiedUrl = ref(false)
 
 const userEmail = computed(() => auth.user?.email || '')
 const hostname = computed(() => window.location.hostname)
+// Must match internal/carddav.AddressBookPath — clients that skip discovery paste this
+// collection URL directly.
 const davUrl = computed(() => {
   const origin = window.location.origin
-  return `${origin}/dav/${userEmail.value}/contacts/`
+  return `${origin}/dav/${userEmail.value}/addressbooks/contacts/`
 })
 
 async function copyUrl(url: string) {
