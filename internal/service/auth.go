@@ -21,6 +21,14 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrEmailTaken         = errors.New("email already taken")
 	ErrUserNotFound       = errors.New("user not found")
+	ErrWrongTokenType     = errors.New("wrong token type")
+)
+
+// Token types. Carried in the "typ" claim so that a refresh token cannot be
+// presented as an API bearer token, and an access token cannot mint new pairs.
+const (
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
 )
 
 type AuthService struct {
@@ -44,9 +52,10 @@ type TokenPair struct {
 }
 
 type Claims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
+	UserID    string `json:"user_id"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	TokenType string `json:"typ"`
 	jwt.RegisteredClaims
 }
 
@@ -110,7 +119,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*Token
 }
 
 func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) (*TokenPair, error) {
-	claims, err := s.ValidateToken(refreshTokenStr)
+	claims, err := s.ValidateRefreshToken(refreshTokenStr)
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
@@ -126,7 +135,17 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) 
 	return s.generateTokenPair(user)
 }
 
+// ValidateToken accepts only access tokens; it is what the API auth middleware calls.
 func (s *AuthService) ValidateToken(tokenStr string) (*Claims, error) {
+	return s.validateToken(tokenStr, TokenTypeAccess)
+}
+
+// ValidateRefreshToken accepts only refresh tokens.
+func (s *AuthService) ValidateRefreshToken(tokenStr string) (*Claims, error) {
+	return s.validateToken(tokenStr, TokenTypeRefresh)
+}
+
+func (s *AuthService) validateToken(tokenStr, want string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -142,6 +161,10 @@ func (s *AuthService) ValidateToken(tokenStr string) (*Claims, error) {
 		return nil, ErrInvalidCredentials
 	}
 
+	if claims.TokenType != want {
+		return nil, fmt.Errorf("%w: want %s, got %q", ErrWrongTokenType, want, claims.TokenType)
+	}
+
 	return claims, nil
 }
 
@@ -150,9 +173,10 @@ func (s *AuthService) generateTokenPair(user *domain.User) (*TokenPair, error) {
 	expiresAt := now.Add(s.cfg.TokenTTL)
 
 	accessClaims := &Claims{
-		UserID: user.ID,
-		Email:  user.Email,
-		Role:   user.Role,
+		UserID:    user.ID,
+		Email:     user.Email,
+		Role:      user.Role,
+		TokenType: TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -167,9 +191,10 @@ func (s *AuthService) generateTokenPair(user *domain.User) (*TokenPair, error) {
 	}
 
 	refreshClaims := &Claims{
-		UserID: user.ID,
-		Email:  user.Email,
-		Role:   user.Role,
+		UserID:    user.ID,
+		Email:     user.Email,
+		Role:      user.Role,
+		TokenType: TokenTypeRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.cfg.RefreshTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),

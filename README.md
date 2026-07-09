@@ -54,10 +54,15 @@ The SPA is embedded into the Go binary via `go:embed` and served directly from t
 ```bash
 git clone https://github.com/gumeniukcom/contactshq
 cd contactshq
+
+# Required: generate a signing secret. Compose refuses to start without it.
+cp .env.example .env
+echo "CHQ_AUTH_JWT_SECRET=$(openssl rand -hex 32)" > .env
+
 docker compose up -d
 ```
 
-The app will be available at `http://localhost:8080`. The first registered user becomes an admin.
+The app will be available at `http://localhost:8080`.
 
 ### Run locally
 
@@ -84,16 +89,20 @@ database:
   dsn: contactshq.db     # file path for SQLite, or postgres DSN
 
 auth:
-  jwt_secret: change-me-in-production
-  jwt_expiry: 15m
-  refresh_expiry: 7d
+  jwt_secret: ""          # required, min 32 chars — openssl rand -hex 32
+  token_ttl: 24h
+  refresh_ttl: 720h
 ```
+
+`auth.jwt_secret` has no default: the server refuses to start when it is missing, shorter
+than 32 characters, or set to a known placeholder such as `change-me-in-production`. Anyone
+who knows the signing secret can mint tokens for any account, including admins.
 
 | Env variable | Description |
 |---|---|
 | `CHQ_DATABASE_DRIVER` | `sqlite` or `postgres` |
 | `CHQ_DATABASE_DSN` | SQLite file path or PostgreSQL connection string |
-| `CHQ_AUTH_JWT_SECRET` | JWT signing secret — **change in production** |
+| `CHQ_AUTH_JWT_SECRET` | **Required.** JWT signing secret, min 32 chars |
 | `CHQ_SERVER_PORT` | HTTP port (default `8080`) |
 
 ## Connect your devices

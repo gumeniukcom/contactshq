@@ -132,7 +132,7 @@ func (o *PipelineOrchestrator) createProvider(ctx context.Context, userID, provi
 		}
 		if cfg.CredentialID != "" && o.credRepo != nil {
 			cred, err := o.credRepo.GetByID(ctx, cfg.CredentialID)
-			if err != nil || cred == nil {
+			if err != nil || cred == nil || cred.UserID != userID {
 				return nil, fmt.Errorf("credential %s not found", cfg.CredentialID)
 			}
 			// OAuth2 credential → use authenticated HTTP client for CardDAV
@@ -162,7 +162,7 @@ func (o *PipelineOrchestrator) createProvider(ctx context.Context, userID, provi
 			return nil, fmt.Errorf("google provider requires credential_id")
 		}
 		conn, err := o.credRepo.GetByID(ctx, cfg.CredentialID)
-		if err != nil || conn == nil {
+		if err != nil || conn == nil || conn.UserID != userID {
 			return nil, fmt.Errorf("google credential %s not found", cfg.CredentialID)
 		}
 		httpClient, err := o.googleOAuth.GetHTTPClient(ctx, conn)

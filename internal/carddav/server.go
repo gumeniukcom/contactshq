@@ -16,6 +16,7 @@ type Server struct {
 	backend   *Backend
 	userRepo  repository.UserRepository
 	appPwRepo repository.AppPasswordRepository
+	authCache *authCache
 }
 
 func NewServer(backend *Backend, userRepo repository.UserRepository, appPwRepo repository.AppPasswordRepository, prefix string) *Server {
@@ -29,6 +30,7 @@ func NewServer(backend *Backend, userRepo repository.UserRepository, appPwRepo r
 		backend:   backend,
 		userRepo:  userRepo,
 		appPwRepo: appPwRepo,
+		authCache: newAuthCache(),
 	}
 }
 
@@ -54,27 +56,53 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	email, password := parts[0], parts[1]
 
-	user, err := s.userRepo.GetByEmail(r.Context(), email)
-	if err != nil || user == nil {
+	verdict := s.authenticate(r.Context(), email, password)
+	if !verdict.ok {
 		w.Header().Set("WWW-Authenticate", `Basic realm="ContactsHQ CardDAV"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	if !verifyArgon2id(password, user.PasswordHash) {
-		// Fallback: try app-specific passwords
-		if !s.verifyAppPassword(r.Context(), user.ID, password) {
-			w.Header().Set("WWW-Authenticate", `Basic realm="ContactsHQ CardDAV"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-	}
-
-	ctx := WithUserID(r.Context(), user.ID)
-	ctx = WithUserEmail(ctx, user.Email)
+	ctx := WithUserID(r.Context(), verdict.userID)
+	ctx = WithUserEmail(ctx, verdict.userEmail)
 	r = r.WithContext(ctx)
 
 	s.handler.ServeHTTP(w, r)
+}
+
+// authenticate verifies Basic-auth credentials, consulting the short-lived verdict
+// cache first. A cached positive keeps working until its TTL expires, so a password
+// change takes up to authCachePositiveTTL to lock out old CardDAV clients.
+func (s *Server) authenticate(ctx context.Context, email, password string) authVerdict {
+	key := authCacheKey(email, password)
+	if v, ok := s.authCache.get(key); ok {
+		if v.ok {
+			// Refresh last-used bookkeeping is skipped on cache hits by design:
+			// it would defeat the point of not touching the DB per request.
+			return v
+		}
+		return authVerdict{}
+	}
+
+	verdict := s.verifyCredentials(ctx, email, password)
+	s.authCache.put(key, verdict)
+	return verdict
+}
+
+func (s *Server) verifyCredentials(ctx context.Context, email, password string) authVerdict {
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil || user == nil {
+		return authVerdict{}
+	}
+
+	if !verifyArgon2id(password, user.PasswordHash) {
+		// Fallback: try app-specific passwords
+		if !s.verifyAppPassword(ctx, user.ID, password) {
+			return authVerdict{}
+		}
+	}
+
+	return authVerdict{ok: true, userID: user.ID, userEmail: user.Email}
 }
 
 func (s *Server) verifyAppPassword(ctx context.Context, userID, password string) bool {

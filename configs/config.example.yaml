@@ -8,7 +8,10 @@ database:
   dsn: "contactshq.db"
 
 auth:
-  jwt_secret: "change-me-in-production"
+  # Required, min 32 characters. Generate with: openssl rand -hex 32
+  # The server refuses to start without it (or with a known placeholder value).
+  # Can also be supplied via the CHQ_AUTH_JWT_SECRET environment variable.
+  jwt_secret: ""
   token_ttl: "24h"
   refresh_ttl: "720h"
 

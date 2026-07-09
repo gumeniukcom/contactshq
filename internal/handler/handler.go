@@ -10,29 +10,29 @@ import (
 )
 
 type Services struct {
-	Version          string
-	BuildTime        string
-	Auth             *service.AuthService
-	User             *service.UserService
-	Contact          *service.ContactService
-	Importer         *service.ImporterService
-	Exporter         *service.ExporterService
-	QRCode           *service.QRCodeService
-	Pipeline         *service.PipelineService
-	Backup           *service.BackupService
-	Orchestrator     *chqsync.PipelineOrchestrator
-	Worker           worker.TaskWorker
-	SyncRunRepo      repository.SyncRunRepository
-	SyncStateRepo    repository.SyncStateRepository
-	SyncConflictRepo repository.SyncConflictRepository
-	ProviderConnRepo repository.ProviderConnectionRepository
-	DupRepo          repository.PotentialDuplicateRepository
-	DupDetector      *service.DuplicateDetector
-	MergeService     *service.MergeService
+	Version           string
+	BuildTime         string
+	Auth              *service.AuthService
+	User              *service.UserService
+	Contact           *service.ContactService
+	Importer          *service.ImporterService
+	Exporter          *service.ExporterService
+	QRCode            *service.QRCodeService
+	Pipeline          *service.PipelineService
+	Backup            *service.BackupService
+	Orchestrator      *chqsync.PipelineOrchestrator
+	Worker            worker.TaskWorker
+	SyncRunRepo       repository.SyncRunRepository
+	SyncStateRepo     repository.SyncStateRepository
+	SyncConflictRepo  repository.SyncConflictRepository
+	ProviderConnRepo  repository.ProviderConnectionRepository
+	DupRepo           repository.PotentialDuplicateRepository
+	DupDetector       *service.DuplicateDetector
+	MergeService      *service.MergeService
 	DedupSettingsRepo repository.UserDedupSettingsRepository
-	Scheduler        *worker.Scheduler
-	GoogleOAuth      *service.GoogleOAuthService
-	AppPassword      *service.AppPasswordService
+	Scheduler         *worker.Scheduler
+	GoogleOAuth       *service.GoogleOAuthService
+	AppPassword       *service.AppPasswordService
 }
 
 func Register(app *fiber.App, svc Services) {
@@ -45,11 +45,13 @@ func Register(app *fiber.App, svc Services) {
 
 	api := app.Group("/api/v1")
 
-	// Auth (public)
+	// Auth (public, rate-limited). Register and login share one bucket: both verify or
+	// derive an argon2id hash, so they gate the same expensive work.
 	auth := api.Group("/auth")
-	auth.Post("/register", authHandler.Register)
-	auth.Post("/login", authHandler.Login)
-	auth.Post("/refresh", authHandler.Refresh)
+	credentialLimit := middleware.RateLimiter(middleware.CredentialRateLimit)
+	auth.Post("/register", credentialLimit, authHandler.Register)
+	auth.Post("/login", credentialLimit, authHandler.Login)
+	auth.Post("/refresh", middleware.RateLimiter(middleware.RefreshRateLimit), authHandler.Refresh)
 
 	// Google OAuth2 callback (public — browser redirect from Google)
 	if svc.GoogleOAuth != nil {
