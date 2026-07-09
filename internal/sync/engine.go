@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -49,6 +50,30 @@ type SyncResult struct {
 	Skipped   int `json:"skipped"`
 	Errors    int `json:"errors"`
 	Conflicts int `json:"conflicts"`
+}
+
+// A provider that returns a short or empty listing — an expired token, a truncated
+// page, a provider-side outage — is indistinguishable from one where the user deleted
+// everything. Propagating that as deletions wipes the other side. Abort instead once
+// the share of tracked items about to disappear crosses the threshold; a genuine bulk
+// delete can be re-run after the user re-syncs in smaller steps or clears sync state.
+const (
+	deletionAbortRatio   = 0.5
+	deletionAbortMinimum = 5
+)
+
+// ErrMassDeletion aborts a run before propagating an implausible number of deletions.
+var ErrMassDeletion = errors.New("aborting sync: implausible number of deletions")
+
+func checkDeletionSafety(toDelete, tracked int) error {
+	if tracked < deletionAbortMinimum || toDelete == 0 {
+		return nil
+	}
+	if float64(toDelete)/float64(tracked) > deletionAbortRatio {
+		return fmt.Errorf("%w: %d of %d tracked contacts missing from the provider listing",
+			ErrMassDeletion, toDelete, tracked)
+	}
+	return nil
 }
 
 // Engine performs contact synchronisation between two SyncProviders.
@@ -135,7 +160,7 @@ func (e *Engine) doSync(ctx context.Context, userID, providerKey string, source,
 	}
 
 	if mode == SyncModePush || mode == SyncModeBidirectional {
-		if err := e.pushPhase(ctx, userID, providerKey, dest, source, result); err != nil {
+		if err := e.pushPhase(ctx, userID, providerKey, dest, source, conflictMode, result); err != nil {
 			return result, err
 		}
 	}
@@ -144,6 +169,10 @@ func (e *Engine) doSync(ctx context.Context, userID, providerKey string, source,
 }
 
 // pullPhase syncs items from source into dest (remote → local).
+//
+// sync_states rows map a remote id to a local id. The two are only equal by accident —
+// for contacts first created locally and pushed out, the provider assigns its own remote
+// id — so every lookup must go through the side it belongs to.
 func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, source, dest SyncProvider, conflictMode ConflictMode, result *SyncResult) error {
 	sourceItems, err := source.List(ctx)
 	if err != nil {
@@ -170,20 +199,32 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 		destMap[item.RemoteID] = item
 	}
 
-	prevStateMap := make(map[string]*domain.SyncState, len(prevStates))
+	prevByRemoteID := make(map[string]*domain.SyncState, len(prevStates))
 	for _, s := range prevStates {
-		prevStateMap[s.RemoteID] = s
+		prevByRemoteID[s.RemoteID] = s
 	}
 
+	// Refuse to act on a listing that would erase most of what we track.
+	missing := 0
+	for remoteID := range prevByRemoteID {
+		if _, exists := sourceMap[remoteID]; !exists {
+			missing++
+		}
+	}
+	if err := checkDeletionSafety(missing, len(prevByRemoteID)); err != nil {
+		return err
+	}
+
+	pending := e.pendingConflictsByRemoteID(ctx, userID, providerKey)
 	now := time.Now()
 
 	// Process source items
 	for remoteID, srcItem := range sourceMap {
-		prev := prevStateMap[remoteID]
+		prev := prevByRemoteID[remoteID]
 
 		if prev == nil {
 			// NEW on source → Put to dest
-			newETag, err := dest.Put(ctx, srcItem)
+			put, err := dest.Put(ctx, srcItem)
 			if err != nil {
 				e.logger.Error("sync: failed to put new item to dest", zap.String("remote_id", remoteID), zap.Error(err))
 				result.Errors++
@@ -195,9 +236,9 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 				UserID:       userID,
 				ProviderType: providerKey,
 				RemoteID:     remoteID,
-				LocalID:      remoteID,
+				LocalID:      put.RemoteID,
 				RemoteETag:   srcItem.ETag,
-				LocalETag:    newETag,
+				LocalETag:    put.ETag,
 				ContentHash:  contentHash(srcItem.VCardData),
 				BaseVCard:    srcItem.VCardData,
 				LastSyncedAt: now,
@@ -216,85 +257,53 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 			continue
 		}
 
-		// Source modified — check dest
-		destItem, destExists := destMap[remoteID]
+		// Source modified — check dest, addressing it by its own id.
+		destItem, destExists := destMap[prev.LocalID]
 		destModified := destExists && prev.LocalETag != destItem.ETag
+
+		vcardToApply := srcItem.VCardData
 
 		if destModified {
 			result.Conflicts++
 
-			// Attempt three-way merge
-			mergeResult, mergeErr := MergeVCards(prev.BaseVCard, destItem.VCardData, srcItem.VCardData)
-			if mergeErr == nil && mergeResult.AutoMerged {
-				// Auto-merge succeeded — apply merged vCard to dest
-				newETag, putErr := dest.Put(ctx, SyncItem{
-					RemoteID:  remoteID,
-					ETag:      srcItem.ETag,
-					VCardData: mergeResult.MergedVCard,
-				})
-				if putErr != nil {
-					result.Errors++
-					continue
-				}
-				prev.RemoteETag = srcItem.ETag
-				prev.LocalETag = newETag
-				prev.ContentHash = contentHash(mergeResult.MergedVCard)
-				prev.BaseVCard = mergeResult.MergedVCard
-				prev.LastSyncedAt = now
-				if err := e.syncRepo.Update(ctx, prev); err != nil {
-					result.Errors++
-					continue
-				}
-				result.Updated++
-				continue
-			}
-
-			// Auto-merge failed or merge error — queue conflict record
-			if e.conflictRepo != nil {
-				var diffs []FieldConflict
-				if mergeErr == nil {
-					diffs = mergeResult.Conflicts
-				}
-				diffsJSON, _ := json.Marshal(diffs)
-				conflict := &domain.SyncConflict{
-					ID:             uuid.New().String(),
-					UserID:         userID,
-					ProviderType:   providerKey,
-					RemoteID:       remoteID,
-					LocalContactID: prev.LocalID,
-					BaseVCard:      prev.BaseVCard,
-					LocalVCard:     destItem.VCardData,
-					RemoteVCard:    srcItem.VCardData,
-					FieldDiffs:     string(diffsJSON),
-					Status:         "pending",
-					CreatedAt:      now,
-				}
-				if createErr := e.conflictRepo.Create(ctx, conflict); createErr != nil {
-					e.logger.Warn("failed to create conflict record", zap.Error(createErr))
+			// Only auto and source_wins are allowed to resolve on their own. Manual must
+			// never silently merge, which is the whole point of asking the user.
+			var merged *MergeResult
+			if conflictMode == ConflictAuto {
+				if mergeResult, mergeErr := MergeVCards(prev.BaseVCard, destItem.VCardData, srcItem.VCardData); mergeErr == nil && mergeResult.AutoMerged {
+					merged = mergeResult
 				}
 			}
 
-			// Apply conflict mode
-			switch conflictMode {
-			case ConflictSourceWins:
-				// Fall through to put below
-			case ConflictAuto, ConflictManual, ConflictDestWins, ConflictSkip:
-				result.Skipped++
-				continue
+			if merged != nil {
+				vcardToApply = merged.MergedVCard
+			} else {
+				if conflictMode == ConflictAuto || conflictMode == ConflictManual {
+					e.recordConflict(ctx, userID, providerKey, now, prev, destItem, srcItem, pending)
+				}
+
+				if conflictMode != ConflictSourceWins {
+					result.Skipped++
+					continue
+				}
 			}
 		}
 
-		// Apply source → dest
-		newETag, err := dest.Put(ctx, srcItem)
+		put, err := dest.Put(ctx, SyncItem{
+			RemoteID:  prev.LocalID,
+			ETag:      prev.LocalETag,
+			VCardData: vcardToApply,
+		})
 		if err != nil {
 			result.Errors++
 			continue
 		}
 
 		prev.RemoteETag = srcItem.ETag
-		prev.LocalETag = newETag
-		prev.ContentHash = contentHash(srcItem.VCardData)
-		prev.BaseVCard = srcItem.VCardData
+		prev.LocalID = put.RemoteID
+		prev.LocalETag = put.ETag
+		prev.ContentHash = contentHash(vcardToApply)
+		prev.BaseVCard = vcardToApply
 		prev.LastSyncedAt = now
 		if err := e.syncRepo.Update(ctx, prev); err != nil {
 			result.Errors++
@@ -304,10 +313,10 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 	}
 
 	// Handle deletions (items in prev state but not in source)
-	for remoteID, prev := range prevStateMap {
+	for remoteID, prev := range prevByRemoteID {
 		if _, exists := sourceMap[remoteID]; !exists {
-			if err := dest.Delete(ctx, remoteID); err != nil {
-				e.logger.Error("sync: failed to delete from dest", zap.String("remote_id", remoteID), zap.Error(err))
+			if err := dest.Delete(ctx, prev.LocalID); err != nil {
+				e.logger.Error("sync: failed to delete from dest", zap.String("local_id", prev.LocalID), zap.Error(err))
 				result.Errors++
 				continue
 			}
@@ -322,12 +331,88 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 	return nil
 }
 
+// pendingConflictsByRemoteID indexes the conflicts already awaiting review, so a run
+// updates them in place instead of appending a fresh row on every schedule tick.
+func (e *Engine) pendingConflictsByRemoteID(ctx context.Context, userID, providerKey string) map[string]*domain.SyncConflict {
+	if e.conflictRepo == nil {
+		return nil
+	}
+	existing, err := e.conflictRepo.ListPendingByProvider(ctx, userID, providerKey)
+	if err != nil {
+		e.logger.Warn("failed to list pending conflicts", zap.Error(err))
+		return map[string]*domain.SyncConflict{}
+	}
+	byRemoteID := make(map[string]*domain.SyncConflict, len(existing))
+	for _, c := range existing {
+		byRemoteID[c.RemoteID] = c
+	}
+	return byRemoteID
+}
+
+func (e *Engine) recordConflict(
+	ctx context.Context,
+	userID, providerKey string,
+	now time.Time,
+	prev *domain.SyncState,
+	localItem, remoteItem SyncItem,
+	pending map[string]*domain.SyncConflict,
+) {
+	if e.conflictRepo == nil {
+		return
+	}
+
+	var diffs []FieldConflict
+	if mergeResult, mergeErr := MergeVCards(prev.BaseVCard, localItem.VCardData, remoteItem.VCardData); mergeErr == nil {
+		diffs = mergeResult.Conflicts
+	}
+	diffsJSON, _ := json.Marshal(diffs)
+
+	if existing, ok := pending[prev.RemoteID]; ok {
+		existing.BaseVCard = prev.BaseVCard
+		existing.LocalVCard = localItem.VCardData
+		existing.RemoteVCard = remoteItem.VCardData
+		existing.RemoteETag = remoteItem.ETag
+		existing.FieldDiffs = string(diffsJSON)
+		if err := e.conflictRepo.Update(ctx, existing); err != nil {
+			e.logger.Warn("failed to update conflict record", zap.Error(err))
+		}
+		return
+	}
+
+	conflict := &domain.SyncConflict{
+		ID:             uuid.New().String(),
+		UserID:         userID,
+		ProviderType:   providerKey,
+		RemoteID:       prev.RemoteID,
+		LocalContactID: prev.LocalID,
+		BaseVCard:      prev.BaseVCard,
+		LocalVCard:     localItem.VCardData,
+		RemoteVCard:    remoteItem.VCardData,
+		RemoteETag:     remoteItem.ETag,
+		FieldDiffs:     string(diffsJSON),
+		Status:         "pending",
+		CreatedAt:      now,
+	}
+	if err := e.conflictRepo.Create(ctx, conflict); err != nil {
+		e.logger.Warn("failed to create conflict record", zap.Error(err))
+		return
+	}
+	pending[prev.RemoteID] = conflict
+}
+
 // pushPhase syncs locally-changed items from local (dest) back to remote (source).
 // "local" is the internal provider, "remote" is the external provider.
-func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, local, remote SyncProvider, result *SyncResult) error {
+func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, local, remote SyncProvider, conflictMode ConflictMode, result *SyncResult) error {
 	localItems, err := local.List(ctx)
 	if err != nil {
 		return fmt.Errorf("push: list local items: %w", err)
+	}
+
+	// The remote listing is what tells us whether someone else changed a contact since
+	// our last sync. Without it a push silently overwrites their edit.
+	remoteItems, err := remote.List(ctx)
+	if err != nil {
+		return fmt.Errorf("push: list remote items: %w", err)
 	}
 
 	prevStates, err := e.syncRepo.ListByUser(ctx, userID, providerKey)
@@ -340,21 +425,37 @@ func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, loca
 		localMap[item.RemoteID] = item
 	}
 
-	prevStateMap := make(map[string]*domain.SyncState, len(prevStates))
-	for _, s := range prevStates {
-		prevStateMap[s.RemoteID] = s
+	remoteMap := make(map[string]SyncItem, len(remoteItems))
+	for _, item := range remoteItems {
+		remoteMap[item.RemoteID] = item
 	}
 
+	prevByLocalID := make(map[string]*domain.SyncState, len(prevStates))
+	for _, s := range prevStates {
+		prevByLocalID[s.LocalID] = s
+	}
+
+	missing := 0
+	for localID := range prevByLocalID {
+		if _, exists := localMap[localID]; !exists {
+			missing++
+		}
+	}
+	if err := checkDeletionSafety(missing, len(prevByLocalID)); err != nil {
+		return err
+	}
+
+	pending := e.pendingConflictsByRemoteID(ctx, userID, providerKey)
 	now := time.Now()
 
 	// Push locally-changed contacts to remote
-	for remoteID, localItem := range localMap {
-		prev, exists := prevStateMap[remoteID]
+	for localID, localItem := range localMap {
+		prev, exists := prevByLocalID[localID]
 		if !exists {
-			// Not yet tracked — push as new
-			newETag, err := remote.Put(ctx, localItem)
+			// Not yet tracked — push as new. The provider may assign its own id.
+			put, err := remote.Put(ctx, localItem)
 			if err != nil {
-				e.logger.Error("push: failed to put new item to remote", zap.String("remote_id", remoteID), zap.Error(err))
+				e.logger.Error("push: failed to put new item to remote", zap.String("local_id", localID), zap.Error(err))
 				result.Errors++
 				continue
 			}
@@ -362,9 +463,9 @@ func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, loca
 				ID:           uuid.New().String(),
 				UserID:       userID,
 				ProviderType: providerKey,
-				RemoteID:     remoteID,
-				LocalID:      remoteID,
-				RemoteETag:   newETag,
+				RemoteID:     put.RemoteID,
+				LocalID:      localID,
+				RemoteETag:   put.ETag,
 				LocalETag:    localItem.ETag,
 				ContentHash:  contentHash(localItem.VCardData),
 				BaseVCard:    localItem.VCardData,
@@ -383,14 +484,29 @@ func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, loca
 			continue // no local change
 		}
 
-		newETag, err := remote.Put(ctx, localItem)
+		// Did the remote move on too? Overwriting it would destroy that edit.
+		if remoteItem, ok := remoteMap[prev.RemoteID]; ok && remoteItem.ETag != prev.RemoteETag {
+			result.Conflicts++
+			if conflictMode != ConflictDestWins {
+				e.recordConflict(ctx, userID, providerKey, now, prev, localItem, remoteItem, pending)
+				result.Skipped++
+				continue
+			}
+		}
+
+		put, err := remote.Put(ctx, SyncItem{
+			RemoteID:  prev.RemoteID,
+			ETag:      prev.RemoteETag,
+			VCardData: localItem.VCardData,
+		})
 		if err != nil {
-			e.logger.Error("push: failed to put changed item to remote", zap.String("remote_id", remoteID), zap.Error(err))
+			e.logger.Error("push: failed to put changed item to remote", zap.String("remote_id", prev.RemoteID), zap.Error(err))
 			result.Errors++
 			continue
 		}
 
-		prev.RemoteETag = newETag
+		prev.RemoteID = put.RemoteID
+		prev.RemoteETag = put.ETag
 		prev.LocalETag = localItem.ETag
 		prev.ContentHash = contentHash(localItem.VCardData)
 		prev.BaseVCard = localItem.VCardData
@@ -403,10 +519,10 @@ func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, loca
 	}
 
 	// Push deletions: contacts removed locally should be removed from remote
-	for remoteID, prev := range prevStateMap {
-		if _, exists := localMap[remoteID]; !exists {
-			if err := remote.Delete(ctx, remoteID); err != nil {
-				e.logger.Error("push: failed to delete from remote", zap.String("remote_id", remoteID), zap.Error(err))
+	for localID, prev := range prevByLocalID {
+		if _, exists := localMap[localID]; !exists {
+			if err := remote.Delete(ctx, prev.RemoteID); err != nil {
+				e.logger.Error("push: failed to delete from remote", zap.String("remote_id", prev.RemoteID), zap.Error(err))
 				result.Errors++
 				continue
 			}

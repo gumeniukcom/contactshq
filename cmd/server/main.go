@@ -93,6 +93,7 @@ func main() {
 	mergeService := service.NewMergeService(contactRepo, abRepo, dupRepo, syncRepo)
 
 	appPwService := service.NewAppPasswordService(appPwRepo)
+	syncConflictService := service.NewSyncConflictService(syncConflictRepo, syncRepo, contactRepo, abRepo)
 
 	// Google OAuth
 	googleOAuth := service.NewGoogleOAuthService(cfg.Google, providerConnRepo)
@@ -195,6 +196,7 @@ func main() {
 		Scheduler:         sched,
 		GoogleOAuth:       googleOAuth,
 		AppPassword:       appPwService,
+		SyncConflict:      syncConflictService,
 	})
 
 	// RFC 6764 — CardDAV service discovery

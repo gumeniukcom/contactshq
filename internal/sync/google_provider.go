@@ -106,10 +106,10 @@ func (p *GoogleProvider) Get(ctx context.Context, remoteID string) (*SyncItem, e
 	}, nil
 }
 
-func (p *GoogleProvider) Put(ctx context.Context, item SyncItem) (string, error) {
+func (p *GoogleProvider) Put(ctx context.Context, item SyncItem) (PutResult, error) {
 	parsed, err := vcardpkg.ParseVCard(item.VCardData)
 	if err != nil {
-		return "", fmt.Errorf("parse vcard: %w", err)
+		return PutResult{}, fmt.Errorf("parse vcard: %w", err)
 	}
 
 	person := ParsedContactToPerson(parsed)
@@ -122,19 +122,27 @@ func (p *GoogleProvider) Put(ctx context.Context, item SyncItem) (string, error)
 			Context(ctx).
 			Do()
 		if err != nil {
-			return "", fmt.Errorf("update contact %s: %w", item.RemoteID, err)
+			return PutResult{}, fmt.Errorf("update contact %s: %w", item.RemoteID, err)
 		}
-		return updated.Etag, nil
+		remoteID := updated.ResourceName
+		if remoteID == "" {
+			remoteID = item.RemoteID
+		}
+		return PutResult{RemoteID: remoteID, ETag: updated.Etag}, nil
 	}
 
-	// Create new contact
+	// Create new contact. People assigns the resourceName; without it we cannot match
+	// this contact on the next sync.
 	created, err := p.service.People.CreateContact(person).
 		Context(ctx).
 		Do()
 	if err != nil {
-		return "", fmt.Errorf("create contact: %w", err)
+		return PutResult{}, fmt.Errorf("create contact: %w", err)
 	}
-	return created.Etag, nil
+	if created.ResourceName == "" {
+		return PutResult{}, fmt.Errorf("create contact: People API returned no resourceName")
+	}
+	return PutResult{RemoteID: created.ResourceName, ETag: created.Etag}, nil
 }
 
 func (p *GoogleProvider) Delete(ctx context.Context, remoteID string) error {

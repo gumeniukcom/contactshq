@@ -20,6 +20,7 @@ type SyncConflict struct {
 	BaseVCard      string     `bun:"base_vcard,notnull,default:''"          json:"base_vcard"`
 	LocalVCard     string     `bun:"local_vcard,notnull,default:''"         json:"local_vcard"`
 	RemoteVCard    string     `bun:"remote_vcard,notnull,default:''"        json:"remote_vcard"`
+	RemoteETag     string     `bun:"remote_etag,notnull,default:''"         json:"remote_etag"`
 	FieldDiffs     string     `bun:"field_diffs,notnull,default:'[]'"       json:"field_diffs"`
 	Status         string     `bun:",notnull,default:'pending'"             json:"status"`
 	Resolution     string     `bun:",notnull,default:''"                    json:"resolution"`

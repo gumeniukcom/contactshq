@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"strconv"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
-	chqsync "github.com/gumeniukcom/contactshq/internal/sync"
+	"github.com/gumeniukcom/contactshq/internal/service"
 	"github.com/gumeniukcom/contactshq/internal/worker"
 	"github.com/gumeniukcom/contactshq/internal/worker/jobs"
 )
@@ -19,6 +20,7 @@ type SyncHandler struct {
 	syncStateRepo    repository.SyncStateRepository
 	syncConflictRepo repository.SyncConflictRepository
 	providerConnRepo repository.ProviderConnectionRepository
+	conflictSvc      *service.SyncConflictService
 	worker           worker.TaskWorker
 }
 
@@ -27,6 +29,7 @@ func NewSyncHandler(
 	syncStateRepo repository.SyncStateRepository,
 	syncConflictRepo repository.SyncConflictRepository,
 	providerConnRepo repository.ProviderConnectionRepository,
+	conflictSvc *service.SyncConflictService,
 	w worker.TaskWorker,
 ) *SyncHandler {
 	return &SyncHandler{
@@ -34,6 +37,7 @@ func NewSyncHandler(
 		syncStateRepo:    syncStateRepo,
 		syncConflictRepo: syncConflictRepo,
 		providerConnRepo: providerConnRepo,
+		conflictSvc:      conflictSvc,
 		worker:           w,
 	}
 }
@@ -287,66 +291,46 @@ type resolveConflictRequest struct {
 }
 
 func (h *SyncHandler) ResolveConflict(c *fiber.Ctx) error {
-	if h.syncConflictRepo == nil {
+	if h.conflictSvc == nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "not found"})
 	}
 	userID := c.Locals("userID").(string)
-	id := c.Params("id")
-
-	conflict, err := h.syncConflictRepo.GetByID(c.Context(), id)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "conflict not found"})
-	}
-	if conflict.UserID != userID {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
-	}
-	if conflict.Status != "pending" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "conflict already resolved"})
-	}
 
 	var req resolveConflictRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
-	resolved, err := chqsync.ApplyResolution(conflict.BaseVCard, conflict.LocalVCard, conflict.RemoteVCard, req.Resolution)
+	conflict, err := h.conflictSvc.Resolve(c.Context(), userID, c.Params("id"), req.Resolution)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to apply resolution"})
+		return conflictError(c, err)
 	}
 
-	now := time.Now()
-	conflict.Status = "resolved"
-	conflict.ResolvedVCard = resolved
-	conflict.ResolvedAt = &now
-	if err := h.syncConflictRepo.Update(c.Context(), conflict); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to save resolution"})
+	return c.JSON(fiber.Map{"message": "conflict resolved", "resolved_vcard": conflict.ResolvedVCard})
+}
+
+// conflictError maps the service's sentinel errors onto HTTP statuses.
+func conflictError(c *fiber.Ctx, err error) error {
+	switch {
+	case errors.Is(err, service.ErrConflictNotFound), errors.Is(err, service.ErrConflictContactGone):
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+	case errors.Is(err, service.ErrConflictForbidden):
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
+	case errors.Is(err, service.ErrConflictNotPending):
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	default:
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to resolve conflict"})
 	}
-	return c.JSON(fiber.Map{"message": "conflict resolved", "resolved_vcard": resolved})
 }
 
 func (h *SyncHandler) DismissConflict(c *fiber.Ctx) error {
-	if h.syncConflictRepo == nil {
+	if h.conflictSvc == nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "not found"})
 	}
 	userID := c.Locals("userID").(string)
-	id := c.Params("id")
 
-	conflict, err := h.syncConflictRepo.GetByID(c.Context(), id)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "conflict not found"})
-	}
-	if conflict.UserID != userID {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
-	}
-	if conflict.Status != "pending" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "conflict already resolved"})
-	}
-
-	now := time.Now()
-	conflict.Status = "dismissed"
-	conflict.ResolvedAt = &now
-	if err := h.syncConflictRepo.Update(c.Context(), conflict); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to dismiss conflict"})
+	if err := h.conflictSvc.Dismiss(c.Context(), userID, c.Params("id")); err != nil {
+		return conflictError(c, err)
 	}
 	return c.JSON(fiber.Map{"message": "conflict dismissed"})
 }

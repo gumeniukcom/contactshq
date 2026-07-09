@@ -33,6 +33,7 @@ type Services struct {
 	Scheduler         *worker.Scheduler
 	GoogleOAuth       *service.GoogleOAuthService
 	AppPassword       *service.AppPasswordService
+	SyncConflict      *service.SyncConflictService
 }
 
 func Register(app *fiber.App, svc Services) {
@@ -40,7 +41,7 @@ func Register(app *fiber.App, svc Services) {
 	userHandler := NewUserHandler(svc.User)
 	contactHandler := NewContactHandler(svc.Contact)
 	adminHandler := NewAdminHandler(svc.User)
-	syncHandler := NewSyncHandler(svc.SyncRunRepo, svc.SyncStateRepo, svc.SyncConflictRepo, svc.ProviderConnRepo, svc.Worker)
+	syncHandler := NewSyncHandler(svc.SyncRunRepo, svc.SyncStateRepo, svc.SyncConflictRepo, svc.ProviderConnRepo, svc.SyncConflict, svc.Worker)
 	credHandler := NewCredentialHandler(svc.ProviderConnRepo)
 
 	api := app.Group("/api/v1")

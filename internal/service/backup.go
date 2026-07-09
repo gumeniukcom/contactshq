@@ -3,6 +3,7 @@ package service
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -224,9 +225,22 @@ func (s *BackupService) Delete(ctx context.Context, userID, backupID string) err
 	return os.Remove(fullPath)
 }
 
+// ErrEmptyBackup guards a replace-restore from wiping an address book with nothing.
+var ErrEmptyBackup = errors.New("backup contains no readable contacts")
+
+// preparedContact is a contact parsed out of a backup and ready to insert.
+type preparedContact struct {
+	contact *domain.Contact
+	parsed  *vcardpkg.ParsedContact
+}
+
 // Restore imports contacts from a backup file.
 // mode "merge" adds contacts that do not already exist (by UID).
 // mode "replace" deletes all current contacts and imports the entire backup.
+//
+// The whole backup is parsed before anything is deleted. Doing it the other way round
+// turns an unreadable or empty file into the permanent loss of the address book, since
+// DeleteAll has already run by the time the first card fails to parse.
 func (s *BackupService) Restore(ctx context.Context, userID, backupID, mode string) (*RestoreResult, error) {
 	fullPath, err := s.GetPath(ctx, userID, backupID)
 	if err != nil {
@@ -243,16 +257,10 @@ func (s *BackupService) Restore(ctx context.Context, userID, backupID, mode stri
 		return nil, err
 	}
 
-	if mode == "replace" {
-		if err := s.contactRepo.DeleteAll(ctx, ab.ID); err != nil {
-			return nil, fmt.Errorf("delete existing contacts: %w", err)
-		}
-	}
-
-	cards := vcardpkg.SplitVCards(data)
 	result := &RestoreResult{}
+	prepared := make([]preparedContact, 0)
 
-	for _, card := range cards {
+	for _, card := range vcardpkg.SplitVCards(data) {
 		card = strings.TrimSpace(card)
 		if card == "" {
 			continue
@@ -271,18 +279,6 @@ func (s *BackupService) Restore(ctx context.Context, userID, backupID, mode stri
 			parsed.UID = uid
 		}
 
-		if mode == "merge" {
-			existing, err := s.contactRepo.GetByUID(ctx, ab.ID, uid)
-			if err != nil {
-				result.Errors++
-				continue
-			}
-			if existing != nil {
-				result.Skipped++
-				continue
-			}
-		}
-
 		now := time.Now()
 		contact := &domain.Contact{
 			ID:            uuid.New().String(),
@@ -295,11 +291,36 @@ func (s *BackupService) Restore(ctx context.Context, userID, backupID, mode stri
 		}
 		vcardpkg.ApplyToContact(contact, parsed)
 
-		if err := s.contactRepo.Create(ctx, contact); err != nil {
+		prepared = append(prepared, preparedContact{contact: contact, parsed: parsed})
+	}
+
+	if mode == "replace" {
+		if len(prepared) == 0 {
+			return nil, fmt.Errorf("%w: refusing to replace %d existing contacts", ErrEmptyBackup, result.Errors)
+		}
+		if err := s.contactRepo.DeleteAll(ctx, ab.ID); err != nil {
+			return nil, fmt.Errorf("delete existing contacts: %w", err)
+		}
+	}
+
+	for _, p := range prepared {
+		if mode == "merge" {
+			existing, err := s.contactRepo.GetByUID(ctx, ab.ID, p.contact.UID)
+			if err != nil {
+				result.Errors++
+				continue
+			}
+			if existing != nil {
+				result.Skipped++
+				continue
+			}
+		}
+
+		if err := s.contactRepo.Create(ctx, p.contact); err != nil {
 			result.Errors++
 			continue
 		}
-		if err := writeChildRecords(ctx, s.contactRepo, contact.ID, parsed); err != nil {
+		if err := writeChildRecords(ctx, s.contactRepo, p.contact.ID, p.parsed); err != nil {
 			result.Errors++
 			continue
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -101,15 +102,15 @@ func (p *InternalProvider) Get(ctx context.Context, remoteID string) (*SyncItem,
 	}, nil
 }
 
-func (p *InternalProvider) Put(ctx context.Context, item SyncItem) (string, error) {
+func (p *InternalProvider) Put(ctx context.Context, item SyncItem) (PutResult, error) {
 	ab, err := p.abRepo.GetOrCreateByUserID(ctx, p.userID)
 	if err != nil {
-		return "", err
+		return PutResult{}, err
 	}
 
 	existing, err := p.contactRepo.GetByUID(ctx, ab.ID, item.RemoteID)
 	if err != nil {
-		return "", err
+		return PutResult{}, err
 	}
 
 	h := sha256.Sum256([]byte(item.VCardData))
@@ -127,16 +128,25 @@ func (p *InternalProvider) Put(ctx context.Context, item SyncItem) (string, erro
 		existing.UpdatedAt = now
 		vcardpkg.ApplyToContact(existing, parsed)
 		if err := p.contactRepo.Update(ctx, existing); err != nil {
-			return "", err
+			return PutResult{}, err
 		}
-		_ = writeChildRecords(ctx, p.contactRepo, existing.ID, parsed)
-		return etag, nil
+		// A failed child write leaves the contact absent from search and filters, so it
+		// must surface rather than be discarded.
+		if err := writeChildRecords(ctx, p.contactRepo, existing.ID, parsed); err != nil {
+			return PutResult{}, fmt.Errorf("write child records for %s: %w", existing.ID, err)
+		}
+		return PutResult{RemoteID: existing.UID, ETag: etag}, nil
+	}
+
+	uid := item.RemoteID
+	if uid == "" {
+		uid = uuid.New().String()
 	}
 
 	contact := &domain.Contact{
 		ID:            uuid.New().String(),
 		AddressBookID: ab.ID,
-		UID:           item.RemoteID,
+		UID:           uid,
 		ETag:          etag,
 		VCardData:     item.VCardData,
 		CreatedAt:     now,
@@ -145,11 +155,13 @@ func (p *InternalProvider) Put(ctx context.Context, item SyncItem) (string, erro
 	vcardpkg.ApplyToContact(contact, parsed)
 
 	if err := p.contactRepo.Create(ctx, contact); err != nil {
-		return "", err
+		return PutResult{}, err
 	}
-	_ = writeChildRecords(ctx, p.contactRepo, contact.ID, parsed)
+	if err := writeChildRecords(ctx, p.contactRepo, contact.ID, parsed); err != nil {
+		return PutResult{}, fmt.Errorf("write child records for %s: %w", contact.ID, err)
+	}
 
-	return etag, nil
+	return PutResult{RemoteID: contact.UID, ETag: etag}, nil
 }
 
 func (p *InternalProvider) Delete(ctx context.Context, remoteID string) error {

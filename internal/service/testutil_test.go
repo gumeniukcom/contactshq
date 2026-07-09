@@ -12,12 +12,17 @@ import (
 type mockContactRepo struct {
 	contacts map[string]*domain.Contact
 	byUID    map[string]*domain.Contact // key: addressBookID+":"+uid
+	updates  int                        // Update() call count
+	// emailsWritten records the last ReplaceEmails payload per contact, so tests can
+	// tell a persisted write apart from a mutation of the pointer they already hold.
+	emailsWritten map[string][]*domain.ContactEmail
 }
 
 func newMockContactRepo() *mockContactRepo {
 	return &mockContactRepo{
-		contacts: make(map[string]*domain.Contact),
-		byUID:    make(map[string]*domain.Contact),
+		contacts:      make(map[string]*domain.Contact),
+		byUID:         make(map[string]*domain.Contact),
+		emailsWritten: make(map[string][]*domain.ContactEmail),
 	}
 }
 
@@ -36,6 +41,7 @@ func (m *mockContactRepo) GetByUID(_ context.Context, abID, uid string) (*domain
 }
 
 func (m *mockContactRepo) Update(_ context.Context, c *domain.Contact) error {
+	m.updates++
 	m.contacts[c.ID] = c
 	m.byUID[c.AddressBookID+":"+c.UID] = c
 	return nil
@@ -78,7 +84,8 @@ func (m *mockContactRepo) ListAll(_ context.Context, abID string) ([]*domain.Con
 }
 
 // Child record methods — no-op in tests.
-func (m *mockContactRepo) ReplaceEmails(_ context.Context, _ string, _ []*domain.ContactEmail) error {
+func (m *mockContactRepo) ReplaceEmails(_ context.Context, contactID string, emails []*domain.ContactEmail) error {
+	m.emailsWritten[contactID] = emails
 	return nil
 }
 func (m *mockContactRepo) ReplacePhones(_ context.Context, _ string, _ []*domain.ContactPhone) error {

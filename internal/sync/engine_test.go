@@ -19,8 +19,9 @@ import (
 // --- mock SyncProvider ---
 
 type memProvider struct {
-	name  string
-	items map[string]chqsync.SyncItem
+	name       string
+	items      map[string]chqsync.SyncItem
+	idAssigner func(chqsync.SyncItem) string
 }
 
 func newMemProvider(name string) *memProvider {
@@ -44,12 +45,18 @@ func (p *memProvider) Get(_ context.Context, id string) (*chqsync.SyncItem, erro
 	return nil, nil
 }
 
-func (p *memProvider) Put(_ context.Context, item chqsync.SyncItem) (string, error) {
+// idAssigner lets a provider mint its own remote id on create, the way Google People
+// returns a resourceName. Nil means "keep the id the caller supplied".
+func (p *memProvider) Put(_ context.Context, item chqsync.SyncItem) (chqsync.PutResult, error) {
+	if _, exists := p.items[item.RemoteID]; !exists && p.idAssigner != nil {
+		item.RemoteID = p.idAssigner(item)
+	}
+
 	h := sha256.Sum256([]byte(item.VCardData))
 	item.ETag = hex.EncodeToString(h[:8])
 	item.ContentHash = hex.EncodeToString(h[:])
 	p.items[item.RemoteID] = item
-	return item.ETag, nil
+	return chqsync.PutResult{RemoteID: item.RemoteID, ETag: item.ETag}, nil
 }
 
 func (p *memProvider) Delete(_ context.Context, id string) error {

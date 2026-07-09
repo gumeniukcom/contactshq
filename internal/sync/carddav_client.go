@@ -268,19 +268,20 @@ func (p *CardDAVClientProvider) Get(ctx context.Context, remoteID string) (*Sync
 	}, nil
 }
 
-func (p *CardDAVClientProvider) Put(ctx context.Context, item SyncItem) (string, error) {
+func (p *CardDAVClientProvider) Put(ctx context.Context, item SyncItem) (PutResult, error) {
 	card, err := vcard.NewDecoder(strings.NewReader(item.VCardData)).Decode()
 	if err != nil {
-		return "", fmt.Errorf("decode vcard: %w", err)
+		return PutResult{}, fmt.Errorf("decode vcard: %w", err)
 	}
 
 	path := p.abPath + item.RemoteID + ".vcf"
 	obj, err := p.client.PutAddressObject(ctx, path, card)
 	if err != nil {
-		return "", err
+		return PutResult{}, err
 	}
 
-	return obj.ETag, nil
+	// CardDAV stores the object at the path we chose, so the id never changes.
+	return PutResult{RemoteID: item.RemoteID, ETag: obj.ETag}, nil
 }
 
 func (p *CardDAVClientProvider) Delete(ctx context.Context, remoteID string) error {
