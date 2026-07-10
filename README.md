@@ -6,7 +6,7 @@ A self-hosted contact management hub with a CardDAV server, multi-provider sync 
 
 - **Centralized address book** — store and manage all contacts in one place with full vCard 4.0 support (names, emails, phones, addresses, IMs, URLs, categories, dates, and more)
 - **CardDAV server** — expose your contacts as a standard CardDAV endpoint, compatible with macOS Contacts, iOS, Thunderbird, and any CalDAV/CardDAV client
-- **Sync pipelines** — pull contacts from external CardDAV servers (Fastmail, iCloud, Nextcloud, etc.) on a schedule or on demand; supports pull, push, and bidirectional modes
+- **Sync pipelines** — move contacts between external providers (Fastmail, iCloud, Nextcloud, Google) and your address book on a schedule or on demand; each step is an import, an export, or a two-way sync
 - **Three-way merge** — when a contact is modified both locally and on a remote source, the engine merges changes field-by-field automatically; unresolvable conflicts are queued for manual review
 - **Conflict resolution UI** — inspect field-level diffs between base/local/remote versions and resolve each field individually
 - **Duplicate detection** — score-based detection (email, phone, name similarity) surfaces potential duplicates for review and merging
