@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	vcardpkg "github.com/gumeniukcom/contactshq/internal/vcard"
 	"go.uber.org/zap"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/people/v1"
 )
@@ -31,28 +33,59 @@ func NewGoogleProviderWithClient(ctx context.Context, httpClient *http.Client, l
 
 func (p *GoogleProvider) Name() string { return "google" }
 
-func (p *GoogleProvider) List(ctx context.Context) ([]SyncItem, error) {
-	var items []SyncItem
-	var pageToken string
+var (
+	_ IncrementalProvider = (*GoogleProvider)(nil)
+	_ ConditionalWriter   = (*GoogleProvider)(nil)
+)
 
+func (p *GoogleProvider) List(ctx context.Context) ([]SyncItem, error) {
+	delta, err := p.listConnections(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	return delta.Updated, nil
+}
+
+// ListChanges fetches only what the People API changed since cursor, using a sync token.
+//
+// An empty cursor requests the whole collection and a fresh sync token; a stored token
+// requests just the changes since. Google reports removals inline as persons flagged
+// metadata.deleted, which List used to drop on the floor — those are exactly the
+// deletions incremental sync needs.
+func (p *GoogleProvider) ListChanges(ctx context.Context, cursor string) (Delta, error) {
+	return p.listConnections(ctx, cursor)
+}
+
+func (p *GoogleProvider) listConnections(ctx context.Context, syncTokenIn string) (Delta, error) {
+	delta := Delta{Full: syncTokenIn == ""}
+
+	var pageToken string
 	for {
 		call := p.service.People.Connections.List("people/me").
 			PersonFields(allPersonFields).
 			PageSize(100).
+			RequestSyncToken(true).
 			Context(ctx)
 
+		if syncTokenIn != "" {
+			call = call.SyncToken(syncTokenIn)
+		}
 		if pageToken != "" {
 			call = call.PageToken(pageToken)
 		}
 
 		resp, err := call.Do()
 		if err != nil {
-			return nil, fmt.Errorf("list contacts: %w", err)
+			if isExpiredSyncToken(err) {
+				// The token is too old for Google to serve a delta from.
+				return Delta{}, ErrCursorExpired
+			}
+			return Delta{}, fmt.Errorf("list contacts: %w", err)
 		}
 
 		for _, person := range resp.Connections {
-			// Skip deleted contacts
 			if person.Metadata != nil && person.Metadata.Deleted {
+				delta.Deleted = append(delta.Deleted, person.ResourceName)
 				continue
 			}
 
@@ -66,7 +99,7 @@ func (p *GoogleProvider) List(ctx context.Context) ([]SyncItem, error) {
 			}
 
 			h := sha256.Sum256([]byte(vcardData))
-			items = append(items, SyncItem{
+			delta.Updated = append(delta.Updated, SyncItem{
 				RemoteID:    person.ResourceName,
 				ETag:        person.Etag,
 				ContentHash: hex.EncodeToString(h[:]),
@@ -76,11 +109,19 @@ func (p *GoogleProvider) List(ctx context.Context) ([]SyncItem, error) {
 
 		pageToken = resp.NextPageToken
 		if pageToken == "" {
+			delta.Cursor = resp.NextSyncToken
 			break
 		}
 	}
 
-	return items, nil
+	return delta, nil
+}
+
+// isExpiredSyncToken recognises the 410 the People API returns for a sync token it can no
+// longer honour. The delta since then is gone; the caller must re-list in full.
+func isExpiredSyncToken(err error) bool {
+	var gerr *googleapi.Error
+	return errors.As(err, &gerr) && gerr.Code == http.StatusGone
 }
 
 func (p *GoogleProvider) Get(ctx context.Context, remoteID string) (*SyncItem, error) {
@@ -143,6 +184,34 @@ func (p *GoogleProvider) Put(ctx context.Context, item SyncItem) (PutResult, err
 		return PutResult{}, fmt.Errorf("create contact: People API returned no resourceName")
 	}
 	return PutResult{RemoteID: created.ResourceName, ETag: created.Etag}, nil
+}
+
+// PutIfMatch updates a contact only if Google still holds the ETag we last saw. The
+// People API enforces the etag on update and answers a mismatch with 400 FAILED_PRECONDITION,
+// which becomes ErrPreconditionFailed. A create (empty ifMatch) has no prior version to
+// guard, so it falls through to a normal Put.
+func (p *GoogleProvider) PutIfMatch(ctx context.Context, item SyncItem, ifMatch string) (PutResult, error) {
+	if ifMatch != "" {
+		item.ETag = ifMatch
+	}
+	res, err := p.Put(ctx, item)
+	if isPreconditionFailure(err) {
+		return PutResult{}, ErrPreconditionFailed
+	}
+	return res, err
+}
+
+// isPreconditionFailure recognises the etag-mismatch People returns on a stale update.
+// It reports 412, and 400 whose status is FAILED_PRECONDITION.
+func isPreconditionFailure(err error) bool {
+	var gerr *googleapi.Error
+	if !errors.As(err, &gerr) {
+		return false
+	}
+	if gerr.Code == http.StatusPreconditionFailed {
+		return true
+	}
+	return gerr.Code == http.StatusBadRequest && strings.Contains(gerr.Message, "FAILED_PRECONDITION")
 }
 
 func (p *GoogleProvider) Delete(ctx context.Context, remoteID string) error {

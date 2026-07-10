@@ -97,16 +97,31 @@ func checkDeletionSafety(toDelete, tracked int) error {
 	return nil
 }
 
+// CursorStore persists a provider's incremental-sync token per pipeline. Optional: with
+// no store, or a provider that is not incremental, every sync is a full listing.
+type CursorStore interface {
+	Get(ctx context.Context, userID, providerType string) (string, error)
+	Set(ctx context.Context, userID, providerType, cursor string) error
+	Delete(ctx context.Context, userID, providerType string) error
+}
+
 // Engine performs contact synchronisation between two SyncProviders.
 type Engine struct {
 	syncRepo     repository.SyncStateRepository
 	syncRunRepo  repository.SyncRunRepository      // optional — may be nil
 	conflictRepo repository.SyncConflictRepository // optional — may be nil
+	cursorStore  CursorStore                       // optional — may be nil
 	logger       *zap.Logger
 }
 
 func NewEngine(syncRepo repository.SyncStateRepository, logger *zap.Logger) *Engine {
 	return &Engine{syncRepo: syncRepo, logger: logger}
+}
+
+// WithCursorStore enables incremental sync for providers that support it.
+func (e *Engine) WithCursorStore(store CursorStore) *Engine {
+	e.cursorStore = store
+	return e
 }
 
 func NewEngineWithRunRepo(syncRepo repository.SyncStateRepository, runRepo repository.SyncRunRepository, logger *zap.Logger) *Engine {
@@ -195,9 +210,9 @@ func (e *Engine) doSync(ctx context.Context, userID, providerKey string, remote,
 // for contacts first created locally and pushed out, the provider assigns its own remote
 // id — so every lookup must go through the side it belongs to.
 func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, remote, local SyncProvider, conflictMode ConflictMode, result *SyncResult) error {
-	remoteItems, err := remote.List(ctx)
+	delta, err := e.remoteChanges(ctx, userID, providerKey, remote)
 	if err != nil {
-		return fmt.Errorf("list remote items: %w", err)
+		return err
 	}
 
 	localItems, err := local.List(ctx)
@@ -210,8 +225,8 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, remo
 		return fmt.Errorf("list sync states: %w", err)
 	}
 
-	remoteMap := make(map[string]SyncItem, len(remoteItems))
-	for _, item := range remoteItems {
+	remoteMap := make(map[string]SyncItem, len(delta.Updated))
+	for _, item := range delta.Updated {
 		remoteMap[item.RemoteID] = item
 	}
 
@@ -225,14 +240,12 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, remo
 		prevByRemoteID[s.RemoteID] = s
 	}
 
-	// Refuse to act on a listing that would erase most of what we track.
-	missing := 0
-	for remoteID := range prevByRemoteID {
-		if _, exists := remoteMap[remoteID]; !exists {
-			missing++
-		}
-	}
-	if err := checkDeletionSafety(missing, len(prevByRemoteID)); err != nil {
+	// deletions are the tracked contacts to remove locally. A full listing infers them
+	// from absence; a delta is told them explicitly. Either way the same threshold guards
+	// against a bug or an outage wiping the address book — the reason it stays on even
+	// when the provider names deletions.
+	deletions := e.deletionsFromDelta(delta, prevByRemoteID, remoteMap)
+	if err := checkDeletionSafety(len(deletions), len(prevByRemoteID)); err != nil {
 		return err
 	}
 
@@ -333,23 +346,85 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, remo
 		result.Updated++
 	}
 
-	// Handle deletions (tracked contacts the remote no longer lists)
-	for remoteID, prev := range prevByRemoteID {
-		if _, exists := remoteMap[remoteID]; !exists {
-			if err := local.Delete(ctx, prev.LocalID); err != nil {
-				e.logger.Error("sync: failed to delete local contact", zap.String("local_id", prev.LocalID), zap.Error(err))
-				result.Errors++
-				continue
-			}
-			if err := e.syncRepo.Delete(ctx, prev.ID); err != nil {
-				result.Errors++
-				continue
-			}
-			result.Deleted++
+	// Handle deletions the remote reported (explicitly, or by absence in a full listing).
+	for _, prev := range deletions {
+		if err := local.Delete(ctx, prev.LocalID); err != nil {
+			e.logger.Error("sync: failed to delete local contact", zap.String("local_id", prev.LocalID), zap.Error(err))
+			result.Errors++
+			continue
+		}
+		if err := e.syncRepo.Delete(ctx, prev.ID); err != nil {
+			result.Errors++
+			continue
+		}
+		result.Deleted++
+	}
+
+	// Only advance the cursor once the changes it covers have been applied. Storing it
+	// earlier would skip anything that failed on the next run.
+	if delta.Cursor != "" && e.cursorStore != nil {
+		if err := e.cursorStore.Set(ctx, userID, providerKey, delta.Cursor); err != nil {
+			e.logger.Warn("failed to store sync cursor", zap.Error(err))
 		}
 	}
 
 	return nil
+}
+
+// remoteChanges obtains the remote side as a Delta. A provider that does not do
+// incremental sync, or one with no cursor store, yields a full listing. An expired cursor
+// is discarded and the collection is re-listed in full.
+func (e *Engine) remoteChanges(ctx context.Context, userID, providerKey string, remote SyncProvider) (Delta, error) {
+	inc, ok := remote.(IncrementalProvider)
+	if !ok || e.cursorStore == nil {
+		items, err := remote.List(ctx)
+		if err != nil {
+			return Delta{}, fmt.Errorf("list remote items: %w", err)
+		}
+		return Delta{Updated: items, Full: true}, nil
+	}
+
+	cursor, err := e.cursorStore.Get(ctx, userID, providerKey)
+	if err != nil {
+		return Delta{}, fmt.Errorf("load sync cursor: %w", err)
+	}
+
+	delta, err := inc.ListChanges(ctx, cursor)
+	if errors.Is(err, ErrCursorExpired) {
+		e.logger.Info("sync cursor expired, resynchronising fully", zap.String("provider", providerKey))
+		if delErr := e.cursorStore.Delete(ctx, userID, providerKey); delErr != nil {
+			e.logger.Warn("failed to drop expired cursor", zap.Error(delErr))
+		}
+		delta, err = inc.ListChanges(ctx, "")
+	}
+	if err != nil {
+		return Delta{}, fmt.Errorf("list remote changes: %w", err)
+	}
+	return delta, nil
+}
+
+// deletionsFromDelta resolves which tracked contacts the delta says to delete.
+func (e *Engine) deletionsFromDelta(delta Delta, prevByRemoteID map[string]*domain.SyncState, remoteMap map[string]SyncItem) []*domain.SyncState {
+	var deletions []*domain.SyncState
+
+	if delta.Full {
+		// A full listing names no deletions; anything tracked and absent is gone.
+		for remoteID, prev := range prevByRemoteID {
+			if _, exists := remoteMap[remoteID]; !exists {
+				deletions = append(deletions, prev)
+			}
+		}
+		return deletions
+	}
+
+	// A delta lists deletions explicitly. Ignore ids we do not track — a contact deleted
+	// before we ever saw it is nothing to do.
+	for _, remoteID := range delta.Deleted {
+		if prev, ok := prevByRemoteID[remoteID]; ok {
+			deletions = append(deletions, prev)
+		}
+	}
+	return deletions
 }
 
 // pendingConflictsByRemoteID indexes the conflicts already awaiting review, so a run
@@ -429,11 +504,20 @@ func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, loca
 		return fmt.Errorf("push: list local items: %w", err)
 	}
 
-	// The remote listing is what tells us whether someone else changed a contact since
-	// our last sync. Without it a push silently overwrites their edit.
-	remoteItems, err := remote.List(ctx)
-	if err != nil {
-		return fmt.Errorf("push: list remote items: %w", err)
+	// A conditional writer detects a concurrent remote edit with an If-Match on the write
+	// itself, so there is no need to download the whole remote collection first. Only fall
+	// back to listing it when the provider cannot write conditionally.
+	cw, conditional := remote.(ConditionalWriter)
+	remoteMap := map[string]SyncItem{}
+	if !conditional {
+		remoteItems, err := remote.List(ctx)
+		if err != nil {
+			return fmt.Errorf("push: list remote items: %w", err)
+		}
+		remoteMap = make(map[string]SyncItem, len(remoteItems))
+		for _, item := range remoteItems {
+			remoteMap[item.RemoteID] = item
+		}
 	}
 
 	prevStates, err := e.syncRepo.ListByUser(ctx, userID, providerKey)
@@ -444,11 +528,6 @@ func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, loca
 	localMap := make(map[string]SyncItem, len(localItems))
 	for _, item := range localItems {
 		localMap[item.RemoteID] = item
-	}
-
-	remoteMap := make(map[string]SyncItem, len(remoteItems))
-	for _, item := range remoteItems {
-		remoteMap[item.RemoteID] = item
 	}
 
 	prevByLocalID := make(map[string]*domain.SyncState, len(prevStates))
@@ -505,21 +584,37 @@ func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, loca
 			continue // no local change
 		}
 
-		// Did the remote move on too? Overwriting it would destroy that edit.
-		if remoteItem, ok := remoteMap[prev.RemoteID]; ok && remoteItem.ETag != prev.RemoteETag {
-			result.Conflicts++
-			if conflictMode != ConflictDestWins {
-				e.recordConflict(ctx, userID, providerKey, now, prev, localItem, remoteItem, pending)
-				result.Skipped++
-				continue
-			}
-		}
+		outItem := SyncItem{RemoteID: prev.RemoteID, ETag: prev.RemoteETag, VCardData: localItem.VCardData}
 
-		put, err := remote.Put(ctx, SyncItem{
-			RemoteID:  prev.RemoteID,
-			ETag:      prev.RemoteETag,
-			VCardData: localItem.VCardData,
-		})
+		var put PutResult
+		if conditional {
+			put, err = cw.PutIfMatch(ctx, outItem, prev.RemoteETag)
+			if errors.Is(err, ErrPreconditionFailed) {
+				result.Conflicts++
+				if conflictMode != ConflictDestWins {
+					// Fetch the remote copy only now, to record the conflict; the common
+					// case never pays for it.
+					if remoteItem, gerr := remote.Get(ctx, prev.RemoteID); gerr == nil && remoteItem != nil {
+						e.recordConflict(ctx, userID, providerKey, now, prev, localItem, *remoteItem, pending)
+					}
+					result.Skipped++
+					continue
+				}
+				// dest_wins: the local copy is authoritative, overwrite unconditionally.
+				put, err = remote.Put(ctx, outItem)
+			}
+		} else {
+			// Did the remote move on too? Overwriting it would destroy that edit.
+			if remoteItem, ok := remoteMap[prev.RemoteID]; ok && remoteItem.ETag != prev.RemoteETag {
+				result.Conflicts++
+				if conflictMode != ConflictDestWins {
+					e.recordConflict(ctx, userID, providerKey, now, prev, localItem, remoteItem, pending)
+					result.Skipped++
+					continue
+				}
+			}
+			put, err = remote.Put(ctx, outItem)
+		}
 		if err != nil {
 			e.logger.Error("push: failed to put changed item to remote", zap.String("remote_id", prev.RemoteID), zap.Error(err))
 			result.Errors++

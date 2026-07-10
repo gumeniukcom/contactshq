@@ -86,6 +86,7 @@ func main() {
 	dedupSettingsRepo := repository.NewBunUserDedupSettingsRepository(db)
 	providerConnRepo := repository.NewBunProviderConnectionRepository(db)
 	appPwRepo := repository.NewBunAppPasswordRepository(db)
+	syncCursorRepo := repository.NewBunSyncCursorRepository(db)
 
 	// Services
 	authService := service.NewAuthService(userRepo, abRepo, cfg.Auth)
@@ -107,7 +108,8 @@ func main() {
 	googleOAuth := service.NewGoogleOAuthService(cfg.Google, providerConnRepo)
 
 	// Sync engine & pipeline orchestrator
-	syncEngine := chqsync.NewEngineWithAllRepos(syncRepo, syncRunRepo, syncConflictRepo, logger)
+	syncEngine := chqsync.NewEngineWithAllRepos(syncRepo, syncRunRepo, syncConflictRepo, logger).
+		WithCursorStore(syncCursorRepo)
 	orchestrator := chqsync.NewPipelineOrchestrator(syncEngine, contactRepo, abRepo, pipelineRepo, providerConnRepo, googleOAuth, logger)
 
 	// Worker

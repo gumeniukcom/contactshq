@@ -43,15 +43,25 @@ func NewCardDAVClientProviderWithHTTPClient(endpoint string, httpClient *http.Cl
 		return nil, fmt.Errorf("create carddav client: %w", err)
 	}
 
+	base, err := url.Parse(resolvedEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("parse endpoint: %w", err)
+	}
 	return &CardDAVClientProvider{
-		client: client,
-		abPath: abPath,
+		client:     client,
+		httpClient: httpClient,
+		baseURL:    base,
+		abPath:     abPath,
 	}, nil
 }
 
 type CardDAVClientProvider struct {
 	client *carddav.Client
-	abPath string
+	// httpClient and baseURL back the conditional PUT that go-webdav's client cannot do:
+	// its PutAddressObject sends no If-Match.
+	httpClient *http.Client
+	baseURL    *url.URL
+	abPath     string
 }
 
 func NewCardDAVClientProvider(endpoint, username, password string) (*CardDAVClientProvider, error) {
@@ -218,6 +228,131 @@ func (p *CardDAVClientProvider) List(ctx context.Context) ([]SyncItem, error) {
 	}
 
 	return items, nil
+}
+
+var (
+	_ IncrementalProvider = (*CardDAVClientProvider)(nil)
+	_ ConditionalWriter   = (*CardDAVClientProvider)(nil)
+)
+
+// objectURL is the absolute URL of a contact within the address book.
+func (p *CardDAVClientProvider) objectURL(uid string) string {
+	return p.baseURL.ResolveReference(&url.URL{Path: p.abPath + uid + ".vcf"}).String()
+}
+
+// PutIfMatch writes a contact with an If-Match header, so the server rejects the write if
+// someone else changed it since ifMatch. go-webdav's client sends no If-Match, so this is
+// a raw request.
+func (p *CardDAVClientProvider) PutIfMatch(ctx context.Context, item SyncItem, ifMatch string) (PutResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, p.objectURL(item.RemoteID), strings.NewReader(item.VCardData))
+	if err != nil {
+		return PutResult{}, err
+	}
+	req.Header.Set("Content-Type", "text/vcard; charset=utf-8")
+	if ifMatch == "" {
+		req.Header.Set("If-None-Match", "*")
+	} else {
+		req.Header.Set("If-Match", quoteETag(ifMatch))
+	}
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return PutResult{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusPreconditionFailed {
+		return PutResult{}, ErrPreconditionFailed
+	}
+	if resp.StatusCode >= 400 {
+		return PutResult{}, fmt.Errorf("put %s: HTTP %d", item.RemoteID, resp.StatusCode)
+	}
+
+	etag := unquoteETag(resp.Header.Get("ETag"))
+	if etag == "" {
+		// Some servers omit the ETag on PUT; read it back so sync state stays accurate.
+		if obj, gerr := p.client.GetAddressObject(ctx, p.abPath+item.RemoteID+".vcf"); gerr == nil {
+			etag = obj.ETag
+		}
+	}
+	return PutResult{RemoteID: item.RemoteID, ETag: etag}, nil
+}
+
+func quoteETag(etag string) string {
+	if strings.HasPrefix(etag, `"`) {
+		return etag
+	}
+	return `"` + etag + `"`
+}
+
+func unquoteETag(etag string) string {
+	return strings.Trim(etag, `"`)
+}
+
+// ListChanges fetches a delta via RFC 6578 sync-collection, then MultiGET for the card
+// bodies the sync report does not carry.
+//
+// Not every CardDAV server implements sync-collection. When one fails to — on the first
+// sync, where the cursor is empty — this falls back to a full List and reports no cursor,
+// so the engine keeps doing full syncs against that server. When a stored token is
+// rejected, it surfaces as ErrCursorExpired and the engine re-lists in full.
+func (p *CardDAVClientProvider) ListChanges(ctx context.Context, cursor string) (Delta, error) {
+	resp, err := p.client.SyncCollection(ctx, p.abPath, &carddav.SyncQuery{
+		DataRequest: carddav.AddressDataRequest{AllProp: false},
+		SyncToken:   cursor,
+	})
+	if err != nil {
+		if cursor == "" {
+			// The server does not support sync-collection. Fall back to a full listing;
+			// with no cursor stored, every run stays a full sync.
+			items, listErr := p.List(ctx)
+			if listErr != nil {
+				return Delta{}, listErr
+			}
+			return Delta{Updated: items, Full: true}, nil
+		}
+		// A stored token the server no longer accepts.
+		return Delta{}, ErrCursorExpired
+	}
+
+	delta := Delta{Cursor: resp.SyncToken, Full: cursor == ""}
+
+	for _, path := range resp.Deleted {
+		delta.Deleted = append(delta.Deleted, extractUIDFromPath(path))
+	}
+
+	// sync-collection carries etags but not card bodies; fetch the changed ones.
+	if len(resp.Updated) > 0 {
+		paths := make([]string, 0, len(resp.Updated))
+		for _, obj := range resp.Updated {
+			paths = append(paths, obj.Path)
+		}
+
+		objects, err := p.client.MultiGetAddressBook(ctx, p.abPath, &carddav.AddressBookMultiGet{
+			Paths:       paths,
+			DataRequest: carddav.AddressDataRequest{AllProp: true},
+		})
+		if err != nil {
+			return Delta{}, fmt.Errorf("multiget changed contacts: %w", err)
+		}
+
+		for _, obj := range objects {
+			vcardData := cardToString(obj.Card)
+			h := sha256.Sum256([]byte(vcardData))
+			uid := getUID(obj.Card)
+			if uid == "" {
+				uid = extractUIDFromPath(obj.Path)
+			}
+			delta.Updated = append(delta.Updated, SyncItem{
+				RemoteID:    uid,
+				ETag:        obj.ETag,
+				ContentHash: hex.EncodeToString(h[:]),
+				VCardData:   vcardData,
+			})
+		}
+	}
+
+	return delta, nil
 }
 
 func (p *CardDAVClientProvider) Get(ctx context.Context, remoteID string) (*SyncItem, error) {

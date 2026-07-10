@@ -210,3 +210,24 @@ func TestPostgres_ChangeJournal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"u-1"}, changes.DeletedUIDs, "the tombstone must be readable on PostgreSQL")
 }
+
+// The cursor store upserts with ON CONFLICT ... DO UPDATE, whose exact form differs
+// between dialects.
+func TestPostgres_SyncCursorUpsert(t *testing.T) {
+	db := setupPostgres(t)
+	ctx := context.Background()
+	require.NoError(t, repository.Migrate(ctx, db))
+
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash) VALUES ('u1', 'a@example.com', 'x')`)
+	require.NoError(t, err)
+
+	repo := repository.NewBunSyncCursorRepository(db)
+
+	require.NoError(t, repo.Set(ctx, "u1", "google->internal", "token-1"))
+	require.NoError(t, repo.Set(ctx, "u1", "google->internal", "token-2"))
+
+	got, err := repo.Get(ctx, "u1", "google->internal")
+	require.NoError(t, err)
+	assert.Equal(t, "token-2", got, "the second Set must update, not insert a duplicate")
+}
