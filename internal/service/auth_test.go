@@ -28,8 +28,15 @@ func (m *mockUserRepo) GetByEmail(_ context.Context, email string) (*domain.User
 }
 func (m *mockUserRepo) Update(_ context.Context, _ *domain.User) error { return nil }
 func (m *mockUserRepo) Delete(_ context.Context, _ string) error       { return nil }
-func (m *mockUserRepo) List(_ context.Context, _, _ int) ([]*domain.User, int, error) {
-	return nil, 0, nil
+func (m *mockUserRepo) List(_ context.Context, limit, _ int) ([]*domain.User, int, error) {
+	out := make([]*domain.User, 0, len(m.byID))
+	for _, u := range m.byID {
+		if len(out) == limit {
+			break
+		}
+		out = append(out, u)
+	}
+	return out, len(m.byID), nil
 }
 func (m *mockUserRepo) ListAllIDs(_ context.Context) ([]string, error) { return nil, nil }
 
@@ -140,5 +147,84 @@ func TestValidateTokenRejectsForeignSecret(t *testing.T) {
 
 	if _, err := svc.ValidateToken(pair.AccessToken); err == nil {
 		t.Fatal("ValidateToken accepted a token signed with a foreign secret")
+	}
+}
+
+type mockAddressBookRepo struct{ created int }
+
+func (m *mockAddressBookRepo) Create(context.Context, *domain.AddressBook) error {
+	m.created++
+	return nil
+}
+func (m *mockAddressBookRepo) GetByID(context.Context, string) (*domain.AddressBook, error) {
+	return nil, nil
+}
+func (m *mockAddressBookRepo) GetByUserID(context.Context, string) (*domain.AddressBook, error) {
+	return nil, nil
+}
+func (m *mockAddressBookRepo) GetOrCreateByUserID(context.Context, string) (*domain.AddressBook, error) {
+	return nil, nil
+}
+func (m *mockAddressBookRepo) Update(context.Context, *domain.AddressBook) error { return nil }
+func (m *mockAddressBookRepo) Delete(context.Context, string) error              { return nil }
+
+func newEmptyAuthService() *AuthService {
+	repo := &mockUserRepo{byID: map[string]*domain.User{}, byEmail: map[string]*domain.User{}}
+	return NewAuthService(repo, &mockAddressBookRepo{}, config.AuthConfig{
+		JWTSecret:  "0123456789abcdef0123456789abcdef",
+		TokenTTL:   time.Hour,
+		RefreshTTL: 24 * time.Hour,
+	})
+}
+
+// Nothing in the system ever assigned the admin role, so admin endpoints and the
+// admin-only UI were unreachable on every installation.
+func TestRegister_FirstUserBecomesAdmin(t *testing.T) {
+	svc := newEmptyAuthService()
+
+	first, err := svc.Register(context.Background(), "owner@example.com", "correct-horse", "Owner")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if first.Role != RoleAdmin {
+		t.Fatalf("first user role = %q, want %q", first.Role, RoleAdmin)
+	}
+}
+
+func TestRegister_SubsequentUsersAreNotAdmin(t *testing.T) {
+	svc := newEmptyAuthService()
+	ctx := context.Background()
+
+	if _, err := svc.Register(ctx, "owner@example.com", "correct-horse", "Owner"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	second, err := svc.Register(ctx, "someone@example.com", "correct-horse", "Someone")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	if second.Role != RoleUser {
+		t.Fatalf("second user role = %q, want %q", second.Role, RoleUser)
+	}
+}
+
+// The admin claim has to reach the token, or AdminOnly middleware still refuses.
+func TestRegister_AdminRoleReachesTheAccessToken(t *testing.T) {
+	svc := newEmptyAuthService()
+	ctx := context.Background()
+
+	if _, err := svc.Register(ctx, "owner@example.com", "correct-horse", "Owner"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	pair, err := svc.Login(ctx, "owner@example.com", "correct-horse")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	claims, err := svc.ValidateToken(pair.AccessToken)
+	if err != nil {
+		t.Fatalf("ValidateToken: %v", err)
+	}
+	if claims.Role != RoleAdmin {
+		t.Fatalf("token role = %q, want %q", claims.Role, RoleAdmin)
 	}
 }

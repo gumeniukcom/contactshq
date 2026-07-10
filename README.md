@@ -14,7 +14,7 @@ A self-hosted contact management hub with a CardDAV server, multi-provider sync 
 - **Import / Export** — import vCard (.vcf) and CSV files; export to vCard, CSV, or JSON
 - **Backup & restore** — scheduled or on-demand backups with optional gzip compression, configurable retention, and merge/replace restore modes
 - **QR codes** — generate a QR code for any contact (vCard payload, scannable by phones)
-- **Multi-user** — each user has an isolated address book; admin role for user management
+- **Multi-user** — each user has an isolated address book; the first registered account is the administrator
 - **Self-hosted** — runs as a single binary or via Docker Compose with PostgreSQL
 
 ## Tech stack
@@ -62,7 +62,7 @@ echo "CHQ_AUTH_JWT_SECRET=$(openssl rand -hex 32)" > .env
 docker compose up -d
 ```
 
-The app will be available at `http://localhost:8080`.
+The app will be available at `http://localhost:8080`. The first account you register becomes the administrator.
 
 ### Run locally
 

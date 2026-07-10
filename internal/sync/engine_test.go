@@ -97,6 +97,16 @@ func (m *mockSyncStateRepo) ListByUser(_ context.Context, userID, pt string) ([]
 	return out, nil
 }
 
+func (m *mockSyncStateRepo) ListAllByUser(_ context.Context, userID string) ([]*domain.SyncState, error) {
+	var out []*domain.SyncState
+	for _, s := range m.states {
+		if s.UserID == userID {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
 func (m *mockSyncStateRepo) Update(_ context.Context, s *domain.SyncState) error {
 	m.states[s.ID] = s
 	return nil

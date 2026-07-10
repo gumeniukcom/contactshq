@@ -67,6 +67,15 @@ func (r *BunSyncStateRepository) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+// ListAllByUser returns every sync state of a user, across all providers.
+func (r *BunSyncStateRepository) ListAllByUser(ctx context.Context, userID string) ([]*domain.SyncState, error) {
+	var states []*domain.SyncState
+	err := r.db.NewSelect().Model(&states).
+		Where("user_id = ?", userID).
+		Scan(ctx)
+	return states, err
+}
+
 func (r *BunSyncStateRepository) DeleteByUser(ctx context.Context, userID, providerType string) error {
 	_, err := r.db.NewDelete().Model((*domain.SyncState)(nil)).
 		Where("user_id = ?", userID).

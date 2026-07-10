@@ -24,6 +24,12 @@ var (
 	ErrWrongTokenType     = errors.New("wrong token type")
 )
 
+// User roles.
+const (
+	RoleAdmin = "admin"
+	RoleUser  = "user"
+)
+
 // Token types. Carried in the "typ" claim so that a refresh token cannot be
 // presented as an API bearer token, and an access token cannot mint new pairs.
 const (
@@ -73,13 +79,18 @@ func (s *AuthService) Register(ctx context.Context, email, password, displayName
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
+	role, err := s.roleForNewUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
 	user := &domain.User{
 		ID:           uuid.New().String(),
 		Email:        email,
 		PasswordHash: hash,
 		DisplayName:  displayName,
-		Role:         "user",
+		Role:         role,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -100,6 +111,24 @@ func (s *AuthService) Register(ctx context.Context, email, password, displayName
 	}
 
 	return user, nil
+}
+
+// roleForNewUser makes the first account an administrator.
+//
+// Nothing else in the system ever assigned the admin role, so the admin endpoints and the
+// admin-only UI were unreachable on every installation: the only way in was hand-editing
+// the database. Two registrations racing for the very first account could both come out
+// as admin; on a self-hosted instance whose first user is its owner, that is not a
+// meaningful exposure.
+func (s *AuthService) roleForNewUser(ctx context.Context) (string, error) {
+	_, total, err := s.userRepo.List(ctx, 1, 0)
+	if err != nil {
+		return "", fmt.Errorf("count users: %w", err)
+	}
+	if total == 0 {
+		return RoleAdmin, nil
+	}
+	return RoleUser, nil
 }
 
 func (s *AuthService) Login(ctx context.Context, email, password string) (*TokenPair, error) {

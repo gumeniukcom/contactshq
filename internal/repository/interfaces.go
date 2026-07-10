@@ -82,6 +82,7 @@ type SyncStateRepository interface {
 	GetByRemoteID(ctx context.Context, userID, providerType, remoteID string) (*domain.SyncState, error)
 	GetByLocalID(ctx context.Context, userID, providerType, localID string) (*domain.SyncState, error)
 	ListByUser(ctx context.Context, userID, providerType string) ([]*domain.SyncState, error)
+	ListAllByUser(ctx context.Context, userID string) ([]*domain.SyncState, error)
 	Update(ctx context.Context, state *domain.SyncState) error
 	Delete(ctx context.Context, id string) error
 	DeleteByUser(ctx context.Context, userID, providerType string) error

@@ -95,7 +95,8 @@ func main() {
 	exporterService := service.NewExporterService(contactRepo, abRepo)
 	qrcodeService := service.NewQRCodeService()
 	pipelineService := service.NewPipelineService(pipelineRepo)
-	backupService := service.NewBackupService(contactRepo, abRepo, backupSettingsRepo, cfg.Backup.Dir, cfg.Backup.Schedule, 7)
+	backupService := service.NewBackupService(contactRepo, abRepo, backupSettingsRepo, cfg.Backup.Dir, cfg.Backup.Schedule, 7).
+		WithSyncStateRepo(syncRepo)
 	dupDetector := service.NewDuplicateDetector(contactRepo, abRepo, dupRepo, logger)
 	mergeService := service.NewMergeService(contactRepo, abRepo, dupRepo, syncRepo)
 

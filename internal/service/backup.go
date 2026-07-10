@@ -22,9 +22,16 @@ type BackupService struct {
 	contactRepo      repository.ContactRepository
 	abRepo           repository.AddressBookRepository
 	settingsRepo     repository.UserBackupSettingsRepository
+	syncStateRepo    repository.SyncStateRepository // optional — may be nil
 	backupDir        string
 	defaultSchedule  string
 	defaultRetention int
+}
+
+// WithSyncStateRepo lets a restore reconcile the sync state it invalidates.
+func (s *BackupService) WithSyncStateRepo(repo repository.SyncStateRepository) *BackupService {
+	s.syncStateRepo = repo
+	return s
 }
 
 func NewBackupService(
@@ -323,7 +330,49 @@ func (s *BackupService) Restore(ctx context.Context, userID, backupID, mode stri
 		result.Imported++
 	}
 
+	if err := s.reconcileSyncState(ctx, userID, ab.ID); err != nil {
+		return nil, fmt.Errorf("reconcile sync state: %w", err)
+	}
+
 	return result, nil
+}
+
+// reconcileSyncState drops the sync state of contacts a restore did not bring back.
+//
+// Those rows still map a remote contact to a local one that no longer exists. The next
+// export or two-way run reads them as "deleted locally" and deletes the contact on the
+// remote — a restore would quietly destroy data on Google or a CardDAV server. Dropping
+// the row instead means the next import simply pulls the contact back.
+//
+// Rows whose contact survived are left alone: their local ETag no longer matches, so the
+// restored content is pushed outward as an ordinary edit.
+func (s *BackupService) reconcileSyncState(ctx context.Context, userID, addressBookID string) error {
+	if s.syncStateRepo == nil {
+		return nil
+	}
+
+	states, err := s.syncStateRepo.ListAllByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	for _, state := range states {
+		if state.LocalID == "" {
+			continue
+		}
+		contact, err := s.contactRepo.GetByUID(ctx, addressBookID, state.LocalID)
+		if err != nil {
+			return err
+		}
+		if contact != nil {
+			continue
+		}
+		if err := s.syncStateRepo.Delete(ctx, state.ID); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // readBackupFile reads a backup file and decompresses it if it is gzip-encoded.

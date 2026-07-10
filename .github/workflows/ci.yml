@@ -37,6 +37,42 @@ jobs:
             | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
           "$(go env GOPATH)/bin/golangci-lint" run ./...
 
+  postgres:
+    name: PostgreSQL
+    runs-on: ubuntu-latest
+    # docker-compose ships PostgreSQL, but every migration is written in SQLite-flavoured
+    # SQL and only ever ran there. This job is what proves the documented install works.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chq
+          POSTGRES_PASSWORD: chq
+          POSTGRES_DB: chqtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chq"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Create SPA stub
+        run: mkdir -p internal/web/static/spa && touch internal/web/static/spa/.gitkeep
+
+      - name: Migration and repository tests against PostgreSQL
+        env:
+          TEST_POSTGRES_DSN: postgres://chq:chq@127.0.0.1:5432/chqtest?sslmode=disable
+        run: go test ./internal/repository/ -count=1 -run TestPostgres -v
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
@@ -69,7 +105,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, frontend]
+    needs: [test, frontend, postgres]
     steps:
       - uses: actions/checkout@v4
 

@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/service"
 )
@@ -135,4 +138,80 @@ func TestRestore_LongPhotoLineDoesNotTruncateBackup(t *testing.T) {
 			t.Errorf("contact %s missing after restore", uid)
 		}
 	}
+}
+
+// setupRestoreWithSync wires a sync-state repository into the restore path.
+func setupRestoreWithSync(t *testing.T, backupContent string) (*service.BackupService, *mockContactRepo, *mockStateRepo) {
+	t.Helper()
+
+	svc, repo := setupRestore(t, backupContent)
+	stateRepo := &mockStateRepo{states: map[string]*domain.SyncState{}}
+	return svc.WithSyncStateRepo(stateRepo), repo, stateRepo
+}
+
+func seedState(stateRepo *mockStateRepo, id, localUID string) {
+	stateRepo.states[localUID] = &domain.SyncState{
+		ID:           id,
+		UserID:       "u1",
+		ProviderType: "google->internal",
+		RemoteID:     "people/" + id,
+		LocalID:      localUID,
+		LocalETag:    "stale",
+	}
+}
+
+// A restore must never delete contacts on the remote. The sync state of a contact the
+// backup did not bring back still maps a remote contact to a local one that is gone, and
+// the next export reads that as "deleted locally".
+func TestRestore_DropsSyncStateOfContactsThatDidNotComeBack(t *testing.T) {
+	svc, repo, stateRepo := setupRestoreWithSync(t, twoCards)
+	seedContacts(repo, "new-1", "vanishes")
+	seedState(stateRepo, "st-kept", "new-1")
+	seedState(stateRepo, "st-orphan", "vanishes")
+
+	_, err := svc.Restore(context.Background(), "u1", "backup.vcf", "replace")
+	require.NoError(t, err)
+
+	_, kept := stateRepo.states["new-1"]
+	assert.True(t, kept, "the state of a restored contact must survive")
+
+	_, orphan := stateRepo.states["vanishes"]
+	assert.False(t, orphan, "the state of a contact the restore dropped must be removed")
+}
+
+// Merge-mode restore leaves everything in place, so no state may be dropped.
+func TestRestore_MergeKeepsSyncStateOfUntouchedContacts(t *testing.T) {
+	svc, repo, stateRepo := setupRestoreWithSync(t, twoCards)
+	seedContacts(repo, "untouched")
+	seedState(stateRepo, "st-1", "untouched")
+
+	_, err := svc.Restore(context.Background(), "u1", "backup.vcf", "merge")
+	require.NoError(t, err)
+
+	_, kept := stateRepo.states["untouched"]
+	assert.True(t, kept)
+}
+
+// A contact restored under its old UID keeps its mapping: the restored content then
+// travels outward as an ordinary edit rather than as a deletion.
+func TestRestore_KeepsSyncStateOfRestoredContacts(t *testing.T) {
+	svc, repo, stateRepo := setupRestoreWithSync(t, twoCards)
+	seedContacts(repo, "new-1")
+	seedState(stateRepo, "st-1", "new-1")
+	seedState(stateRepo, "st-2", "new-2")
+
+	_, err := svc.Restore(context.Background(), "u1", "backup.vcf", "replace")
+	require.NoError(t, err)
+
+	assert.Len(t, stateRepo.states, 2, "both restored contacts keep their sync state")
+}
+
+// Without a sync-state repository the restore still works; the wiring is optional.
+func TestRestore_WithoutSyncStateRepoStillRestores(t *testing.T) {
+	svc, repo := setupRestore(t, twoCards)
+	seedContacts(repo, "existing")
+
+	result, err := svc.Restore(context.Background(), "u1", "backup.vcf", "replace")
+	require.NoError(t, err)
+	assert.Equal(t, 2, result.Imported)
 }

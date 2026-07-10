@@ -57,11 +57,27 @@ func (m *mockStateRepo) GetByLocalID(_ context.Context, _, _, _ string) (*domain
 func (m *mockStateRepo) ListByUser(_ context.Context, _, _ string) ([]*domain.SyncState, error) {
 	return nil, nil
 }
+func (m *mockStateRepo) ListAllByUser(_ context.Context, userID string) ([]*domain.SyncState, error) {
+	var out []*domain.SyncState
+	for _, st := range m.states {
+		if st.UserID == userID {
+			out = append(out, st)
+		}
+	}
+	return out, nil
+}
 func (m *mockStateRepo) Update(_ context.Context, s *domain.SyncState) error {
 	m.states[s.RemoteID] = s
 	return nil
 }
-func (m *mockStateRepo) Delete(_ context.Context, _ string) error          { return nil }
+func (m *mockStateRepo) Delete(_ context.Context, id string) error {
+	for key, st := range m.states {
+		if st.ID == id {
+			delete(m.states, key)
+		}
+	}
+	return nil
+}
 func (m *mockStateRepo) DeleteByUser(_ context.Context, _, _ string) error { return nil }
 
 // --- fixtures ---

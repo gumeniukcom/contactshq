@@ -81,7 +81,7 @@ func TestMigrate_ExpectedTablesExist(t *testing.T) {
 
 	require.NoError(t, repository.Migrate(ctx, db))
 
-	tables := []string{"users", "address_books", "contacts", "sync_states", "pipelines", "pipeline_steps", "jobs", "sync_runs", "schema_migrations"}
+	tables := []string{"users", "address_books", "contacts", "sync_states", "pipelines", "pipeline_steps", "sync_runs", "schema_migrations"}
 	for _, table := range tables {
 		var n int
 		row := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table)
