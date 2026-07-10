@@ -44,7 +44,8 @@ async function handleCreate() {
     await createUser(form)
     router.push({ name: 'admin-users' })
   } catch (e: unknown) {
-    error.value = (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to create user'
+    error.value =
+      (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to create user'
   } finally {
     loading.value = false
   }

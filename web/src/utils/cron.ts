@@ -4,26 +4,26 @@ export interface SchedulePreset {
 }
 
 export const SYNC_PRESETS: SchedulePreset[] = [
-  { label: 'Every 15 min',  value: '*/15 * * * *' },
-  { label: 'Hourly',        value: '0 * * * *' },
+  { label: 'Every 15 min', value: '*/15 * * * *' },
+  { label: 'Hourly', value: '0 * * * *' },
   { label: 'Every 6 hours', value: '0 */6 * * *' },
   { label: 'Daily at 2 AM', value: '0 2 * * *' },
-  { label: 'Custom',        value: 'custom' },
+  { label: 'Custom', value: 'custom' },
 ]
 
 export const BACKUP_PRESETS: SchedulePreset[] = [
-  { label: 'Daily at 2 AM',         value: '0 2 * * *' },
-  { label: 'Daily at midnight',     value: '0 0 * * *' },
-  { label: 'Weekly (Sun 2 AM)',     value: '0 2 * * 0' },
+  { label: 'Daily at 2 AM', value: '0 2 * * *' },
+  { label: 'Daily at midnight', value: '0 0 * * *' },
+  { label: 'Weekly (Sun 2 AM)', value: '0 2 * * 0' },
   { label: 'Monthly (1st at 2 AM)', value: '0 2 1 * *' },
-  { label: 'Custom',                value: 'custom' },
+  { label: 'Custom', value: 'custom' },
 ]
 
 export const DEDUP_PRESETS: SchedulePreset[] = [
   { label: 'Daily at 2 AM', value: '0 2 * * *' },
-  { label: 'Weekly (Sun)',   value: '0 2 * * 0' },
-  { label: 'Monthly (1st)',  value: '0 2 1 * *' },
-  { label: 'Custom',         value: 'custom' },
+  { label: 'Weekly (Sun)', value: '0 2 * * 0' },
+  { label: 'Monthly (1st)', value: '0 2 1 * *' },
+  { label: 'Custom', value: 'custom' },
 ]
 
 /**

@@ -52,7 +52,8 @@ async function handleSave() {
     await auth.fetchUser()
     success.value = true
   } catch (e: unknown) {
-    error.value = (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to update'
+    error.value =
+      (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to update'
   } finally {
     loading.value = false
   }

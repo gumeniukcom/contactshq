@@ -3,12 +3,18 @@
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-bold text-foreground">
         Sync Conflicts
-        <span v-if="total > 0" class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-500/20 text-red-800 dark:text-red-300">
+        <span
+          v-if="total > 0"
+          class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-500/20 text-red-800 dark:text-red-300"
+        >
           {{ total }}
         </span>
       </h1>
       <div class="flex gap-2">
-        <select v-model="statusFilter" class="text-sm rounded-md border-input border px-3 py-2 bg-card text-foreground">
+        <select
+          v-model="statusFilter"
+          class="text-sm rounded-md border-input border px-3 py-2 bg-card text-foreground"
+        >
           <option value="">All</option>
           <option value="pending">Pending</option>
           <option value="resolved">Resolved</option>
@@ -19,9 +25,18 @@
 
     <div v-if="loading" class="py-8 text-center text-muted-foreground">Loading...</div>
     <div v-else-if="conflicts.length === 0" class="py-12 text-center text-muted-foreground">
-      <svg class="mx-auto h-12 w-12 text-muted-foreground/50 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <svg
+        class="mx-auto h-12 w-12 text-muted-foreground/50 mb-3"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
       </svg>
       <p>No conflicts found.</p>
     </div>
@@ -34,7 +49,10 @@
       >
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 mb-1">
-            <span :class="statusClass(c.status)" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium">
+            <span
+              :class="statusClass(c.status)"
+              class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+            >
               {{ c.status }}
             </span>
             <span class="text-xs text-muted-foreground">{{ c.provider_type }}</span>
@@ -73,8 +91,12 @@
     <!-- Pagination -->
     <div v-if="total > limit" class="mt-6 flex justify-center gap-2">
       <AppButton size="sm" variant="secondary" :disabled="offset === 0" @click="prevPage">Previous</AppButton>
-      <span class="text-sm text-muted-foreground self-center">{{ page + 1 }} / {{ Math.ceil(total / limit) }}</span>
-      <AppButton size="sm" variant="secondary" :disabled="offset + limit >= total" @click="nextPage">Next</AppButton>
+      <span class="text-sm text-muted-foreground self-center"
+        >{{ page + 1 }} / {{ Math.ceil(total / limit) }}</span
+      >
+      <AppButton size="sm" variant="secondary" :disabled="offset + limit >= total" @click="nextPage"
+        >Next</AppButton
+      >
     </div>
   </div>
 </template>
@@ -98,7 +120,11 @@ const statusFilter = ref('pending')
 async function fetchConflicts() {
   loading.value = true
   try {
-    const { data } = await listConflicts({ status: statusFilter.value || undefined, limit, offset: offset.value })
+    const { data } = await listConflicts({
+      status: statusFilter.value || undefined,
+      limit,
+      offset: offset.value,
+    })
     conflicts.value = data.conflicts
     total.value = data.total
   } finally {
@@ -142,7 +168,6 @@ function statusClass(status: string) {
   if (status === 'resolved') return 'bg-green-100 dark:bg-green-500/20 text-green-800 dark:text-green-300'
   return 'bg-muted text-muted-foreground'
 }
-
 
 onMounted(fetchConflicts)
 </script>

@@ -8,7 +8,9 @@
         :key="t"
         :class="[
           'px-4 py-2 text-sm font-medium rounded-md',
-          tab === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground border border-input hover:bg-secondary/80',
+          tab === t
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-secondary text-secondary-foreground border border-input hover:bg-secondary/80',
         ]"
         @click="tab = t"
       >
@@ -20,9 +22,7 @@
       <FileUpload :accept="tab === 'vCard' ? '.vcf' : '.csv'" @file="selectedFile = $event" />
 
       <div class="mt-4 flex justify-end">
-        <AppButton :loading="loading" :disabled="!selectedFile" @click="handleImport">
-          Import
-        </AppButton>
+        <AppButton :loading="loading" :disabled="!selectedFile" @click="handleImport"> Import </AppButton>
       </div>
 
       <div v-if="result" class="mt-6 p-4 rounded-md bg-muted/50 border border-border">

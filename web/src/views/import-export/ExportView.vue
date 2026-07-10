@@ -3,11 +3,11 @@
     <h1 class="text-2xl font-bold text-foreground mb-6">Export Contacts</h1>
 
     <AppCard>
-      <p class="text-sm text-muted-foreground mb-6">Download all your contacts in one of the available formats.</p>
+      <p class="text-sm text-muted-foreground mb-6">
+        Download all your contacts in one of the available formats.
+      </p>
       <div class="flex flex-wrap gap-3">
-        <AppButton @click="handleExport('vcard')" :loading="loading === 'vcard'">
-          Download vCard
-        </AppButton>
+        <AppButton @click="handleExport('vcard')" :loading="loading === 'vcard'"> Download vCard </AppButton>
         <AppButton variant="secondary" @click="handleExport('csv')" :loading="loading === 'csv'">
           Download CSV
         </AppButton>

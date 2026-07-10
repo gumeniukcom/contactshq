@@ -23,9 +23,13 @@
       />
       <div class="min-w-0 flex-1">
         <h3 class="text-sm font-semibold text-foreground truncate">
-          <span v-if="contact.name_prefix" class="text-muted-foreground font-normal">{{ contact.name_prefix }} </span>
+          <span v-if="contact.name_prefix" class="text-muted-foreground font-normal"
+            >{{ contact.name_prefix }}
+          </span>
           {{ displayName }}
-          <span v-if="contact.nickname" class="ml-1 text-muted-foreground text-xs font-normal">"{{ contact.nickname }}"</span>
+          <span v-if="contact.nickname" class="ml-1 text-muted-foreground text-xs font-normal"
+            >"{{ contact.nickname }}"</span
+          >
         </h3>
         <p v-if="contact.org" class="text-sm text-muted-foreground truncate">
           {{ contact.org }}
@@ -43,10 +47,7 @@
           >
             {{ cat.value }}
           </span>
-          <span
-            v-if="contact.categories.length > 3"
-            class="text-xs text-muted-foreground"
-          >
+          <span v-if="contact.categories.length > 3" class="text-xs text-muted-foreground">
             +{{ contact.categories.length - 3 }}
           </span>
         </div>
@@ -85,7 +86,7 @@ const displayName = computed(() => {
 
 const primaryEmail = computed(() => {
   if (props.contact.emails?.length) {
-    const pref = props.contact.emails.find(e => e.pref === 1) ?? props.contact.emails[0]
+    const pref = props.contact.emails.find((e) => e.pref === 1) ?? props.contact.emails[0]
     return pref.value
   }
   return props.contact.email
@@ -93,7 +94,7 @@ const primaryEmail = computed(() => {
 
 const primaryPhone = computed(() => {
   if (props.contact.phones?.length) {
-    const pref = props.contact.phones.find(p => p.pref === 1) ?? props.contact.phones[0]
+    const pref = props.contact.phones.find((p) => p.pref === 1) ?? props.contact.phones[0]
     return pref.value
   }
   return props.contact.phone

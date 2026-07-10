@@ -14,11 +14,19 @@
     <template v-else-if="conflict">
       <div class="bg-card rounded-lg border border-border p-4 mb-6 text-sm text-muted-foreground space-y-1">
         <p><span class="font-medium text-foreground">Provider:</span> {{ conflict.provider_type }}</p>
-        <p><span class="font-medium text-foreground">Remote ID:</span> <span class="font-mono">{{ conflict.remote_id }}</span></p>
-        <p><span class="font-medium text-foreground">Created:</span> {{ formatDateTime(conflict.created_at) }}</p>
+        <p>
+          <span class="font-medium text-foreground">Remote ID:</span>
+          <span class="font-mono">{{ conflict.remote_id }}</span>
+        </p>
+        <p>
+          <span class="font-medium text-foreground">Created:</span> {{ formatDateTime(conflict.created_at) }}
+        </p>
       </div>
 
-      <div v-if="diffs.length === 0" class="bg-amber-50 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 rounded-lg p-4 text-sm text-amber-800 dark:text-amber-300 mb-6">
+      <div
+        v-if="diffs.length === 0"
+        class="bg-amber-50 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 rounded-lg p-4 text-sm text-amber-800 dark:text-amber-300 mb-6"
+      >
         No field-level conflicts detected. The vCards differ but no specific field diffs were recorded.
         Choosing "Apply source (remote)" will overwrite the local contact.
       </div>
@@ -32,13 +40,18 @@
           class="bg-card rounded-lg border border-border overflow-hidden"
         >
           <div class="px-4 py-2 bg-muted/50 border-b border-border flex items-center justify-between">
-            <span class="text-xs font-semibold text-foreground uppercase tracking-wide">{{ diff.field }}</span>
+            <span class="text-xs font-semibold text-foreground uppercase tracking-wide">{{
+              diff.field
+            }}</span>
             <span v-if="diff.base" class="text-xs text-muted-foreground">base: {{ diff.base }}</span>
           </div>
           <div class="flex divide-x divide-border">
             <label
               class="flex-1 flex items-start gap-3 p-4 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors"
-              :class="{ 'bg-blue-50 dark:bg-blue-500/10 ring-1 ring-inset ring-blue-400': resolution[diff.field] !== 'remote' }"
+              :class="{
+                'bg-blue-50 dark:bg-blue-500/10 ring-1 ring-inset ring-blue-400':
+                  resolution[diff.field] !== 'remote',
+              }"
             >
               <input
                 type="radio"
@@ -54,7 +67,10 @@
             </label>
             <label
               class="flex-1 flex items-start gap-3 p-4 cursor-pointer hover:bg-green-50 dark:hover:bg-green-500/10 transition-colors"
-              :class="{ 'bg-green-50 dark:bg-green-500/10 ring-1 ring-inset ring-green-400': resolution[diff.field] === 'remote' }"
+              :class="{
+                'bg-green-50 dark:bg-green-500/10 ring-1 ring-inset ring-green-400':
+                  resolution[diff.field] === 'remote',
+              }"
             >
               <input
                 type="radio"
@@ -118,12 +134,16 @@ const diffs = ref<FieldDiff[]>([])
 const resolution = reactive<Record<string, string>>({})
 
 function resolveAllLocal() {
-  diffs.value.forEach(d => { resolution[d.field] = 'local' })
+  diffs.value.forEach((d) => {
+    resolution[d.field] = 'local'
+  })
   if (diffs.value.length === 0) handleResolve()
 }
 
 function resolveAllRemote() {
-  diffs.value.forEach(d => { resolution[d.field] = 'remote' })
+  diffs.value.forEach((d) => {
+    resolution[d.field] = 'remote'
+  })
   if (diffs.value.length === 0) {
     // No diffs stored — signal full remote override
     resolution['*'] = 'remote'
@@ -139,12 +159,13 @@ async function handleResolve() {
     await resolveConflict(id, resolution)
     router.push({ name: 'sync-conflicts' })
   } catch (e: unknown) {
-    errorMsg.value = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to resolve conflict'
+    errorMsg.value =
+      (e as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+      'Failed to resolve conflict'
   } finally {
     saving.value = false
   }
 }
-
 
 onMounted(async () => {
   try {
@@ -156,7 +177,9 @@ onMounted(async () => {
       diffs.value = []
     }
     // Default all conflicting fields to "local"
-    diffs.value.forEach(d => { resolution[d.field] = 'local' })
+    diffs.value.forEach((d) => {
+      resolution[d.field] = 'local'
+    })
   } finally {
     loading.value = false
   }

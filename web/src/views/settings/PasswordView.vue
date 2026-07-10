@@ -6,14 +6,21 @@
       <form class="space-y-4" @submit.prevent="handleChange">
         <AppInput v-model="form.old_password" label="Current Password" type="password" id="old_password" />
         <AppInput v-model="form.new_password" label="New Password" type="password" id="new_password" />
-        <AppInput v-model="confirmPassword" label="Confirm New Password" type="password" id="confirm_password"
-          :error="confirmError" />
+        <AppInput
+          v-model="confirmPassword"
+          label="Confirm New Password"
+          type="password"
+          id="confirm_password"
+          :error="confirmError"
+        />
 
         <div class="flex justify-end gap-3 pt-4">
           <AppButton type="submit" :loading="loading">Change Password</AppButton>
         </div>
 
-        <p v-if="success" class="text-sm text-green-600 dark:text-green-400">Password changed successfully.</p>
+        <p v-if="success" class="text-sm text-green-600 dark:text-green-400">
+          Password changed successfully.
+        </p>
         <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
       </form>
     </AppCard>
@@ -38,9 +45,7 @@ const form = reactive({
 })
 
 const confirmError = computed(() =>
-  confirmPassword.value && confirmPassword.value !== form.new_password
-    ? 'Passwords do not match'
-    : '',
+  confirmPassword.value && confirmPassword.value !== form.new_password ? 'Passwords do not match' : '',
 )
 
 async function handleChange() {
@@ -55,7 +60,9 @@ async function handleChange() {
     form.new_password = ''
     confirmPassword.value = ''
   } catch (e: unknown) {
-    error.value = (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to change password'
+    error.value =
+      (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+      'Failed to change password'
   } finally {
     loading.value = false
   }

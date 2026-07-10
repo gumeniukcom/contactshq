@@ -10,7 +10,7 @@
     <AppCard>
       <AppTable :columns="columns" :rows="users" :loading="loading" empty-text="No users found">
         <template #body="{ rows }">
-          <tr v-for="u in (rows as User[])" :key="u.id" class="hover:bg-muted/50">
+          <tr v-for="u in rows as User[]" :key="u.id" class="hover:bg-muted/50">
             <td class="px-4 py-4 text-sm font-medium text-foreground">{{ u.email }}</td>
             <td class="px-4 py-4 text-sm text-muted-foreground">{{ u.display_name }}</td>
             <td class="px-4 py-4 text-sm">
@@ -25,7 +25,9 @@
             </td>
             <td class="px-4 py-4 text-sm text-muted-foreground">{{ formatDate(u.created_at) }}</td>
             <td class="px-4 py-4 text-sm text-right">
-              <button class="text-destructive hover:text-destructive/80" @click="confirmDelete(u)">Delete</button>
+              <button class="text-destructive hover:text-destructive/80" @click="confirmDelete(u)">
+                Delete
+              </button>
             </td>
           </tr>
         </template>
@@ -93,5 +95,4 @@ async function handleDelete() {
   deleteTarget.value = null
   await load()
 }
-
 </script>

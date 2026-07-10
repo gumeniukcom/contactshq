@@ -18,7 +18,12 @@
       </select>
 
       <div v-if="modelValue.credential_id" class="mt-1 text-xs text-muted-foreground flex items-center gap-1">
-        <svg class="h-3.5 w-3.5 text-green-500 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg
+          class="h-3.5 w-3.5 text-green-500 dark:text-green-400"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
         </svg>
         Using "{{ selectedCredentialName }}"
@@ -54,8 +59,8 @@ const emit = defineEmits<{
   'update:modelValue': [value: GoogleConfig]
 }>()
 
-const selectedCredentialName = computed(() =>
-  props.credentials.find(c => c.id === props.modelValue.credential_id)?.name ?? ''
+const selectedCredentialName = computed(
+  () => props.credentials.find((c) => c.id === props.modelValue.credential_id)?.name ?? '',
 )
 
 function onCredentialChange(e: Event) {

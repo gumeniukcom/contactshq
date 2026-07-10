@@ -57,11 +57,18 @@
 
     <!-- Credential summary when selected -->
     <div v-else class="text-xs text-muted-foreground flex items-center gap-1">
-      <svg class="h-3.5 w-3.5 text-green-500 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <svg
+        class="h-3.5 w-3.5 text-green-500 dark:text-green-400"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
       </svg>
       Using saved credential "{{ selectedCredentialName }}"
-      <RouterLink to="/credentials" class="text-accent hover:text-accent/80 hover:underline ml-1">manage</RouterLink>
+      <RouterLink to="/credentials" class="text-accent hover:text-accent/80 hover:underline ml-1"
+        >manage</RouterLink
+      >
     </div>
   </div>
 </template>
@@ -91,8 +98,8 @@ const emit = defineEmits<{
   'update:modelValue': [value: CardDAVConfig]
 }>()
 
-const selectedCredentialName = computed(() =>
-  props.credentials.find(c => c.id === props.modelValue.credential_id)?.name ?? ''
+const selectedCredentialName = computed(
+  () => props.credentials.find((c) => c.id === props.modelValue.credential_id)?.name ?? '',
 )
 
 function update<K extends keyof CardDAVConfig>(key: K, value: CardDAVConfig[K]) {

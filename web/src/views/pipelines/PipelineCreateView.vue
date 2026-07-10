@@ -8,7 +8,11 @@
 
         <div class="flex items-center gap-3">
           <label class="text-sm font-medium text-foreground">Enabled</label>
-          <input type="checkbox" v-model="form.enabled" class="rounded border-input text-accent focus:ring-ring" />
+          <input
+            type="checkbox"
+            v-model="form.enabled"
+            class="rounded border-input text-accent focus:ring-ring"
+          />
         </div>
 
         <ScheduleInput v-model="form.schedule" :presets="SYNC_PRESETS" label="Schedule" />
@@ -22,14 +26,20 @@
             <div class="flex flex-wrap gap-3 items-end">
               <div class="flex-1 min-w-[10rem]">
                 <label class="block text-xs text-muted-foreground mb-1">Provider</label>
-                <select v-model="step.source_type" class="block w-full rounded-md border-input text-sm px-3 py-2 border">
+                <select
+                  v-model="step.source_type"
+                  class="block w-full rounded-md border-input text-sm px-3 py-2 border"
+                >
                   <option value="carddav">CardDAV</option>
                   <option value="google">Google</option>
                 </select>
               </div>
               <div class="flex-1 min-w-[14rem]">
                 <label class="block text-xs text-muted-foreground mb-1">Direction</label>
-                <select v-model="step.direction" class="block w-full rounded-md border-input text-sm px-3 py-2 border">
+                <select
+                  v-model="step.direction"
+                  class="block w-full rounded-md border-input text-sm px-3 py-2 border"
+                >
                   <option value="import">Import ({{ providerLabel(step.source_type) }} → ContactsHQ)</option>
                   <option value="export">Export (ContactsHQ → {{ providerLabel(step.source_type) }})</option>
                   <option value="two_way">Two-way</option>
@@ -37,7 +47,10 @@
               </div>
               <div class="flex-1 min-w-[12rem]">
                 <label class="block text-xs text-muted-foreground mb-1">Conflict</label>
-                <select v-model="step.conflict_mode" class="block w-full rounded-md border-input text-sm px-3 py-2 border">
+                <select
+                  v-model="step.conflict_mode"
+                  class="block w-full rounded-md border-input text-sm px-3 py-2 border"
+                >
                   <option value="auto">Auto-merge (three-way)</option>
                   <option value="source_wins">{{ providerLabel(step.source_type) }} wins</option>
                   <option value="dest_wins">ContactsHQ wins</option>
@@ -45,9 +58,18 @@
                   <option value="manual">Always ask me</option>
                 </select>
               </div>
-              <button type="button" class="text-destructive hover:text-destructive/80 pb-2" @click="form.steps.splice(i, 1)">
+              <button
+                type="button"
+                class="text-destructive hover:text-destructive/80 pb-2"
+                @click="form.steps.splice(i, 1)"
+              >
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
@@ -131,7 +153,13 @@ function emptyGoogle(): GoogleConfig {
 }
 
 function defaultStep(): StepFormItem {
-  return { source_type: 'carddav', conflict_mode: 'auto', direction: 'import', _src: emptyCardDAV(), _gsrc: emptyGoogle() }
+  return {
+    source_type: 'carddav',
+    conflict_mode: 'auto',
+    direction: 'import',
+    _src: emptyCardDAV(),
+    _gsrc: emptyGoogle(),
+  }
 }
 
 const form = reactive({
@@ -178,7 +206,7 @@ function buildSourceConfig(s: StepFormItem): string {
 }
 
 function buildSteps(): PipelineStep[] {
-  return form.steps.map(s => ({
+  return form.steps.map((s) => ({
     source_type: s.source_type,
     dest_type: 'internal',
     conflict_mode: s.conflict_mode as PipelineStep['conflict_mode'],

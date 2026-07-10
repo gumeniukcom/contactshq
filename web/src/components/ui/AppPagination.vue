@@ -48,14 +48,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = withDefaults(defineProps<{
-  page: number
-  perPage: number
-  total: number
-  showPerPage?: boolean
-}>(), {
-  showPerPage: false,
-})
+const props = withDefaults(
+  defineProps<{
+    page: number
+    perPage: number
+    total: number
+    showPerPage?: boolean
+  }>(),
+  {
+    showPerPage: false,
+  },
+)
 
 defineEmits<{
   'update:page': [value: number]

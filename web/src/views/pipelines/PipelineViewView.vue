@@ -12,12 +12,8 @@
         </p>
       </div>
       <div class="flex gap-3">
-        <AppButton variant="secondary" :loading="triggering" @click="handleTrigger">
-          Trigger Now
-        </AppButton>
-        <AppButton @click="router.push({ name: 'pipeline-edit', params: { id } })">
-          Edit
-        </AppButton>
+        <AppButton variant="secondary" :loading="triggering" @click="handleTrigger"> Trigger Now </AppButton>
+        <AppButton @click="router.push({ name: 'pipeline-edit', params: { id } })"> Edit </AppButton>
       </div>
     </div>
 
@@ -53,8 +49,8 @@
             <span class="text-destructive">{{ r.error }}</span>
           </template>
           <template v-else-if="r.result">
-            created {{ r.result.created }}, updated {{ r.result.updated }},
-            deleted {{ r.result.deleted }}, errors {{ r.result.errors }}
+            created {{ r.result.created }}, updated {{ r.result.updated }}, deleted {{ r.result.deleted }},
+            errors {{ r.result.errors }}
           </template>
         </li>
       </ul>
@@ -79,7 +75,9 @@
       </div>
       <table v-else class="w-full text-sm">
         <thead>
-          <tr class="border-b border-border text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <tr
+            class="border-b border-border text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+          >
             <th class="pb-2 pr-4">Status</th>
             <th class="pb-2 pr-4">Started</th>
             <th class="pb-2 pr-4">Duration</th>
@@ -94,7 +92,9 @@
             <td class="py-3 pr-4">
               <AppBadge :color="statusColor(run.status)">{{ run.status }}</AppBadge>
             </td>
-            <td class="py-3 pr-4 text-muted-foreground whitespace-nowrap">{{ formatDateTime(run.started_at) }}</td>
+            <td class="py-3 pr-4 text-muted-foreground whitespace-nowrap">
+              {{ formatDateTime(run.started_at) }}
+            </td>
             <td class="py-3 pr-4 text-muted-foreground">{{ formatDuration(run) }}</td>
             <td class="py-3 pr-4 text-foreground">{{ run.created_count }}</td>
             <td class="py-3 pr-4 text-foreground">{{ run.updated_count }}</td>
@@ -107,14 +107,17 @@
           </tr>
         </tbody>
       </table>
-      <p v-if="runs.some(r => r.error_message)" class="mt-3 text-xs text-destructive">
-        Last error: {{ runs.find(r => r.error_message)?.error_message }}
+      <p v-if="runs.some((r) => r.error_message)" class="mt-3 text-xs text-destructive">
+        Last error: {{ runs.find((r) => r.error_message)?.error_message }}
       </p>
     </AppCard>
 
     <!-- Back link -->
     <div>
-      <button class="text-sm text-accent hover:text-accent/80 hover:underline" @click="router.push({ name: 'pipelines' })">
+      <button
+        class="text-sm text-accent hover:text-accent/80 hover:underline"
+        @click="router.push({ name: 'pipelines' })"
+      >
         ← Back to Pipelines
       </button>
     </div>
@@ -141,7 +144,14 @@ const pipeline = ref<Pipeline | null>(null)
 const runs = ref<SyncRun[]>([])
 const loadingRuns = ref(true)
 const triggering = ref(false)
-const triggerResult = ref<{ step_order: number; result?: { created: number; updated: number; deleted: number; errors: number }; error?: string }[] | null>(null)
+const triggerResult = ref<
+  | {
+      step_order: number
+      result?: { created: number; updated: number; deleted: number; errors: number }
+      error?: string
+    }[]
+  | null
+>(null)
 const triggerError = ref('')
 
 async function loadRuns() {
@@ -182,7 +192,6 @@ function statusColor(status: string): 'green' | 'red' | 'gray' | 'blue' {
   if (status === 'running') return 'blue'
   return 'gray'
 }
-
 
 function formatDuration(run: SyncRun) {
   if (!run.finished_at) return 'running…'

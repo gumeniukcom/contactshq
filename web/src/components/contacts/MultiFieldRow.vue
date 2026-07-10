@@ -2,13 +2,11 @@
   <div class="space-y-2">
     <label v-if="label" class="block text-sm font-medium text-foreground">{{ label }}</label>
 
-    <div v-if="modelValue.length === 0" class="text-sm text-muted-foreground italic">No {{ addLabel || label?.toLowerCase() }}</div>
+    <div v-if="modelValue.length === 0" class="text-sm text-muted-foreground italic">
+      No {{ addLabel || label?.toLowerCase() }}
+    </div>
 
-    <div
-      v-for="(item, i) in modelValue"
-      :key="i"
-      class="flex items-center gap-2"
-    >
+    <div v-for="(item, i) in modelValue" :key="i" class="flex items-center gap-2">
       <!-- Type selector -->
       <select
         v-if="typeOptions && typeOptions.length"
@@ -44,11 +42,7 @@
       </button>
     </div>
 
-    <button
-      type="button"
-      class="text-sm text-accent hover:text-accent/80 font-medium"
-      @click="add"
-    >
+    <button type="button" class="text-sm text-accent hover:text-accent/80 font-medium" @click="add">
       + Add {{ addLabel || label?.toLowerCase() }}
     </button>
   </div>

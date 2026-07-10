@@ -47,15 +47,18 @@
 import { ref, watch, onMounted } from 'vue'
 import { humanizeCron, type SchedulePreset } from '@/utils/cron'
 
-const props = withDefaults(defineProps<{
-  modelValue: string
-  presets: SchedulePreset[]
-  disabled?: boolean
-  label?: string
-}>(), {
-  disabled: false,
-  label: '',
-})
+const props = withDefaults(
+  defineProps<{
+    modelValue: string
+    presets: SchedulePreset[]
+    disabled?: boolean
+    label?: string
+  }>(),
+  {
+    disabled: false,
+    label: '',
+  },
+)
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
@@ -64,8 +67,8 @@ const emit = defineEmits<{
 const activePreset = ref('')
 
 function syncActivePreset() {
-  const match = props.presets.find(p => p.value === props.modelValue && p.value !== 'custom')
-  activePreset.value = match ? match.value : (props.modelValue ? 'custom' : props.presets[0]?.value ?? '')
+  const match = props.presets.find((p) => p.value === props.modelValue && p.value !== 'custom')
+  activePreset.value = match ? match.value : props.modelValue ? 'custom' : (props.presets[0]?.value ?? '')
 }
 
 function selectPreset(preset: SchedulePreset) {

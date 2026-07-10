@@ -1,9 +1,5 @@
 <template>
-  <div
-    v-if="resolvedSrc"
-    :class="sizeClass"
-    class="rounded-full overflow-hidden flex-shrink-0"
-  >
+  <div v-if="resolvedSrc" :class="sizeClass" class="rounded-full overflow-hidden flex-shrink-0">
     <img :src="resolvedSrc" :alt="initials" class="w-full h-full object-cover" />
   </div>
   <div
@@ -19,16 +15,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = withDefaults(defineProps<{
-  firstName?: string
-  lastName?: string
-  photoUri?: string
-  size?: 'sm' | 'md' | 'lg'
-}>(), {
-  firstName: '',
-  lastName: '',
-  size: 'md',
-})
+const props = withDefaults(
+  defineProps<{
+    firstName?: string
+    lastName?: string
+    photoUri?: string
+    size?: 'sm' | 'md' | 'lg'
+  }>(),
+  {
+    firstName: '',
+    lastName: '',
+    size: 'md',
+  },
+)
 
 const resolvedSrc = computed(() => {
   const uri = props.photoUri
@@ -43,8 +42,16 @@ const resolvedSrc = computed(() => {
 })
 
 const palette = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#ef4444',
-  '#f97316', '#eab308', '#22c55e', '#14b8a6', '#0ea5e9',
+  '#6366f1',
+  '#8b5cf6',
+  '#ec4899',
+  '#f43f5e',
+  '#ef4444',
+  '#f97316',
+  '#eab308',
+  '#22c55e',
+  '#14b8a6',
+  '#0ea5e9',
 ]
 
 const initials = computed(() => {
@@ -62,15 +69,21 @@ const bgColor = computed(() => {
   return palette[Math.abs(hash) % palette.length]
 })
 
-const sizeClass = computed(() => ({
-  sm: 'h-8 w-8',
-  md: 'h-10 w-10',
-  lg: 'h-12 w-12',
-}[props.size]))
+const sizeClass = computed(
+  () =>
+    ({
+      sm: 'h-8 w-8',
+      md: 'h-10 w-10',
+      lg: 'h-12 w-12',
+    })[props.size],
+)
 
-const textClass = computed(() => ({
-  sm: 'text-xs',
-  md: 'text-sm',
-  lg: 'text-base',
-}[props.size]))
+const textClass = computed(
+  () =>
+    ({
+      sm: 'text-xs',
+      md: 'text-sm',
+      lg: 'text-base',
+    })[props.size],
+)
 </script>

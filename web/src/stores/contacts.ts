@@ -84,9 +84,23 @@ export const useContactsStore = defineStore('contacts', () => {
   }
 
   return {
-    contacts, total, loading,
-    sortBy, sortDir, filterCategory, filterOrg, filterHasEmail, filterHasPhone, perPage, facets,
-    fetchContacts, fetchFacets, resetFilters,
-    createContact, updateContact, deleteContact, deleteAllContacts,
+    contacts,
+    total,
+    loading,
+    sortBy,
+    sortDir,
+    filterCategory,
+    filterOrg,
+    filterHasEmail,
+    filterHasPhone,
+    perPage,
+    facets,
+    fetchContacts,
+    fetchFacets,
+    resetFilters,
+    createContact,
+    updateContact,
+    deleteContact,
+    deleteAllContacts,
   }
 })

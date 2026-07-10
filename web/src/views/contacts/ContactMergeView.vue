@@ -13,7 +13,9 @@
     <template v-else>
       <!-- Score header -->
       <div class="mb-4 flex items-center gap-3">
-        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300">
+        <span
+          class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300"
+        >
           {{ Math.round(dup.score * 100) }}% match
         </span>
         <span class="text-xs text-muted-foreground">{{ parsedReasons.join(', ') }}</span>
@@ -21,10 +23,18 @@
 
       <!-- Field-by-field picker -->
       <div class="bg-card rounded-lg border border-border overflow-hidden mb-6">
-        <div class="grid grid-cols-3 bg-muted/50 border-b border-border text-xs font-semibold text-muted-foreground uppercase px-4 py-2">
+        <div
+          class="grid grid-cols-3 bg-muted/50 border-b border-border text-xs font-semibold text-muted-foreground uppercase px-4 py-2"
+        >
           <span>Field</span>
-          <span>Contact A <button class="ml-1 text-accent hover:underline" @click="keepAll('a')">Keep all A</button></span>
-          <span>Contact B <button class="ml-1 text-accent hover:underline" @click="keepAll('b')">Keep all B</button></span>
+          <span
+            >Contact A
+            <button class="ml-1 text-accent hover:underline" @click="keepAll('a')">Keep all A</button></span
+          >
+          <span
+            >Contact B
+            <button class="ml-1 text-accent hover:underline" @click="keepAll('b')">Keep all B</button></span
+          >
         </div>
 
         <div
@@ -127,12 +137,18 @@ const fields = computed<FieldRow[]>(() => {
 const resolution = ref<Record<string, string>>({})
 
 function keepAll(side: 'a' | 'b') {
-  fields.value.forEach((f) => { resolution.value[f.key as string] = side })
+  fields.value.forEach((f) => {
+    resolution.value[f.key as string] = side
+  })
 }
 
 const parsedReasons = computed<string[]>(() => {
   if (!dup.value) return []
-  try { return JSON.parse(dup.value.match_reasons) as string[] } catch { return [] }
+  try {
+    return JSON.parse(dup.value.match_reasons) as string[]
+  } catch {
+    return []
+  }
 })
 
 async function fetchDup() {
@@ -143,7 +159,9 @@ async function fetchDup() {
     dup.value = data.duplicates.find((d) => d.id === dupId) ?? null
     if (dup.value) {
       // Default: pick A for all fields
-      fields.value.forEach((f) => { resolution.value[f.key as string] = 'a' })
+      fields.value.forEach((f) => {
+        resolution.value[f.key as string] = 'a'
+      })
     }
   } finally {
     loading.value = false
@@ -159,7 +177,7 @@ async function doMerge() {
   const aCount = Object.values(resolution.value).filter((v) => v === 'a').length
   const bCount = Object.values(resolution.value).filter((v) => v === 'b').length
   const winnerId = aCount >= bCount ? dup.value.contact_a_id : dup.value.contact_b_id
-  const loserId  = aCount >= bCount ? dup.value.contact_b_id : dup.value.contact_a_id
+  const loserId = aCount >= bCount ? dup.value.contact_b_id : dup.value.contact_a_id
 
   // Map field resolutions to winner/loser keys
   const fieldResolution: Record<string, string> = {}

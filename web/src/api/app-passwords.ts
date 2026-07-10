@@ -6,7 +6,9 @@ export function listAppPasswords() {
 }
 
 export function createAppPassword(label: string) {
-  return client.post<{ id: string; label: string; token: string; created_at: string }>('/app-passwords', { label })
+  return client.post<{ id: string; label: string; token: string; created_at: string }>('/app-passwords', {
+    label,
+  })
 }
 
 export function deleteAppPassword(id: string) {

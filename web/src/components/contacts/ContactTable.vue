@@ -13,12 +13,36 @@
               @change="$emit('selectAll')"
             />
           </th>
-          <SortableHeader label="Name" column-key="name" :current-sort="sortBy" :current-dir="sortDir" @sort="$emit('sort', $event)" />
-          <SortableHeader label="Email" column-key="email" :current-sort="sortBy" :current-dir="sortDir" @sort="$emit('sort', $event)" />
-          <th class="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Phone</th>
-          <SortableHeader label="Organization" column-key="org" :current-sort="sortBy" :current-dir="sortDir" @sort="$emit('sort', $event)" />
-          <th class="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Tags</th>
-          <th class="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider"></th>
+          <SortableHeader
+            label="Name"
+            column-key="name"
+            :current-sort="sortBy"
+            :current-dir="sortDir"
+            @sort="$emit('sort', $event)"
+          />
+          <SortableHeader
+            label="Email"
+            column-key="email"
+            :current-sort="sortBy"
+            :current-dir="sortDir"
+            @sort="$emit('sort', $event)"
+          />
+          <th class="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Phone
+          </th>
+          <SortableHeader
+            label="Organization"
+            column-key="org"
+            :current-sort="sortBy"
+            :current-dir="sortDir"
+            @sort="$emit('sort', $event)"
+          />
+          <th class="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Tags
+          </th>
+          <th
+            class="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider"
+          ></th>
         </tr>
       </thead>
       <tbody class="bg-card divide-y divide-border">
@@ -26,7 +50,12 @@
         <template v-if="loading">
           <tr v-for="i in 5" :key="'skeleton-' + i" class="animate-pulse">
             <td v-if="showCheckboxes" class="px-4 py-3"><div class="h-4 w-4 bg-muted rounded" /></td>
-            <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="h-8 w-8 bg-muted rounded-full" /><div class="h-4 w-28 bg-muted rounded" /></div></td>
+            <td class="px-4 py-3">
+              <div class="flex items-center gap-3">
+                <div class="h-8 w-8 bg-muted rounded-full" />
+                <div class="h-4 w-28 bg-muted rounded" />
+              </div>
+            </td>
             <td class="px-4 py-3"><div class="h-4 w-36 bg-muted rounded" /></td>
             <td class="px-4 py-3"><div class="h-4 w-24 bg-muted rounded" /></td>
             <td class="px-4 py-3"><div class="h-4 w-24 bg-muted rounded" /></td>
@@ -72,10 +101,14 @@
               />
               <div class="min-w-0">
                 <p class="text-sm font-medium text-foreground truncate">
-                  <span v-if="contact.name_prefix" class="text-muted-foreground font-normal">{{ contact.name_prefix }} </span>
+                  <span v-if="contact.name_prefix" class="text-muted-foreground font-normal"
+                    >{{ contact.name_prefix }}
+                  </span>
                   {{ displayName(contact) }}
                 </p>
-                <p v-if="contact.nickname" class="text-xs text-muted-foreground truncate">"{{ contact.nickname }}"</p>
+                <p v-if="contact.nickname" class="text-xs text-muted-foreground truncate">
+                  "{{ contact.nickname }}"
+                </p>
               </div>
             </div>
           </td>
@@ -118,10 +151,7 @@
             >
               {{ cat.value }}
             </span>
-            <span
-              v-if="(contact.categories?.length ?? 0) > 3"
-              class="text-xs text-muted-foreground"
-            >
+            <span v-if="(contact.categories?.length ?? 0) > 3" class="text-xs text-muted-foreground">
               +{{ (contact.categories?.length ?? 0) - 3 }}
             </span>
           </td>
@@ -147,18 +177,21 @@ import type { Contact } from '@/types'
 import ContactAvatar from './ContactAvatar.vue'
 import SortableHeader from '@/components/ui/SortableHeader.vue'
 
-const props = withDefaults(defineProps<{
-  contacts: Contact[]
-  loading: boolean
-  sortBy?: string
-  sortDir?: string
-  selectedIds?: Set<string>
-  showCheckboxes?: boolean
-}>(), {
-  sortBy: 'name',
-  sortDir: 'asc',
-  showCheckboxes: false,
-})
+const props = withDefaults(
+  defineProps<{
+    contacts: Contact[]
+    loading: boolean
+    sortBy?: string
+    sortDir?: string
+    selectedIds?: Set<string>
+    showCheckboxes?: boolean
+  }>(),
+  {
+    sortBy: 'name',
+    sortDir: 'asc',
+    showCheckboxes: false,
+  },
+)
 
 defineEmits<{
   select: [contact: Contact]
@@ -170,13 +203,11 @@ defineEmits<{
 
 const ids = computed(() => props.selectedIds ?? new Set<string>())
 
-const allSelected = computed(() =>
-  props.contacts.length > 0 && props.contacts.every(c => ids.value.has(c.id))
+const allSelected = computed(
+  () => props.contacts.length > 0 && props.contacts.every((c) => ids.value.has(c.id)),
 )
 
-const someSelected = computed(() =>
-  props.contacts.some(c => ids.value.has(c.id))
-)
+const someSelected = computed(() => props.contacts.some((c) => ids.value.has(c.id)))
 
 function displayName(c: Contact): string {
   const first = c.first_name || ''

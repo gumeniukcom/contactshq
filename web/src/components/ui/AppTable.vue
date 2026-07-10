@@ -14,9 +14,7 @@
       </thead>
       <tbody class="bg-card divide-y divide-border">
         <tr v-if="loading">
-          <td :colspan="columns.length" class="px-4 py-8 text-center text-muted-foreground">
-            Loading...
-          </td>
+          <td :colspan="columns.length" class="px-4 py-8 text-center text-muted-foreground">Loading...</td>
         </tr>
         <tr v-else-if="!rows.length">
           <td :colspan="columns.length" class="px-4 py-8 text-center text-muted-foreground">

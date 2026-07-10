@@ -10,7 +10,12 @@ export function listProviders() {
   return client.get<{ providers: SyncProvider[] }>('/sync/providers')
 }
 
-export function connectCardDAV(data: { url: string; username: string; password: string; skip_tls_verify?: boolean }) {
+export function connectCardDAV(data: {
+  url: string
+  username: string
+  password: string
+  skip_tls_verify?: boolean
+}) {
   return client.post<{ message: string; id: string }>('/sync/carddav/connect', data)
 }
 
@@ -35,7 +40,9 @@ export function getConflict(id: string) {
 }
 
 export function resolveConflict(id: string, resolution: Record<string, string>) {
-  return client.post<{ message: string; resolved_vcard: string }>(`/sync/conflicts/${id}/resolve`, { resolution })
+  return client.post<{ message: string; resolved_vcard: string }>(`/sync/conflicts/${id}/resolve`, {
+    resolution,
+  })
 }
 
 export function dismissConflict(id: string) {
