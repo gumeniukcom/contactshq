@@ -57,79 +57,65 @@
     />
 
     <!-- Add / Edit modal -->
-    <div v-if="modal.open" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-md">
-        <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border">
-          <h2 class="text-base font-semibold text-foreground">
-            {{ modal.id ? 'Edit Credential' : 'Add Credential' }}
-          </h2>
-          <button class="text-muted-foreground hover:text-foreground" @click="closeModal">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
+    <AppModal :show="modal.open" :label="modal.id ? 'Edit Credential' : 'Add Credential'" @close="closeModal">
+      <h2 class="text-base font-semibold text-foreground mb-4">
+        {{ modal.id ? 'Edit Credential' : 'Add Credential' }}
+      </h2>
+
+      <form class="space-y-4" @submit.prevent="handleSave">
+        <AppInput v-model="modal.form.name" label="Name" placeholder="Fastmail CardDAV" id="cred-name" />
+
+        <div>
+          <label class="block text-sm font-medium text-foreground mb-1">Type</label>
+          <select
+            v-model="modal.form.provider_type"
+            class="block w-full rounded-md border border-input bg-background text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="carddav">CardDAV</option>
+            <option value="google" disabled>Google (coming soon)</option>
+          </select>
         </div>
 
-        <form class="px-6 py-4 space-y-4" @submit.prevent="handleSave">
-          <AppInput v-model="modal.form.name" label="Name" placeholder="Fastmail CardDAV" id="cred-name" />
+        <AppInput
+          v-model="modal.form.endpoint"
+          label="Server URL"
+          placeholder="https://dav.example.com/addressbooks/user/"
+          id="cred-url"
+        />
 
-          <div>
-            <label class="block text-sm font-medium text-foreground mb-1">Type</label>
-            <select
-              v-model="modal.form.provider_type"
-              class="block w-full rounded-md border border-input bg-background text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="carddav">CardDAV</option>
-              <option value="google" disabled>Google (coming soon)</option>
-            </select>
-          </div>
+        <AppInput v-model="modal.form.username" label="Username" id="cred-user" />
 
-          <AppInput
-            v-model="modal.form.endpoint"
-            label="Server URL"
-            placeholder="https://dav.example.com/addressbooks/user/"
-            id="cred-url"
+        <AppInput
+          v-model="modal.form.password"
+          label="Password"
+          type="password"
+          :placeholder="modal.id ? 'Leave blank to keep current' : ''"
+          id="cred-pass"
+        />
+
+        <div class="flex items-center gap-2">
+          <input
+            id="cred-tls"
+            v-model="modal.form.skip_tls_verify"
+            type="checkbox"
+            class="rounded border-input text-accent focus:ring-ring"
           />
+          <label for="cred-tls" class="text-sm text-foreground">
+            Skip TLS/SSL certificate verification
+            <span class="text-xs text-muted-foreground">(use for self-signed certs)</span>
+          </label>
+        </div>
 
-          <AppInput v-model="modal.form.username" label="Username" id="cred-user" />
+        <p v-if="modal.error" class="text-sm text-destructive">{{ modal.error }}</p>
 
-          <AppInput
-            v-model="modal.form.password"
-            label="Password"
-            type="password"
-            :placeholder="modal.id ? 'Leave blank to keep current' : ''"
-            id="cred-pass"
-          />
-
-          <div class="flex items-center gap-2">
-            <input
-              id="cred-tls"
-              v-model="modal.form.skip_tls_verify"
-              type="checkbox"
-              class="rounded border-input text-accent focus:ring-ring"
-            />
-            <label for="cred-tls" class="text-sm text-foreground">
-              Skip TLS/SSL certificate verification
-              <span class="text-xs text-muted-foreground">(use for self-signed certs)</span>
-            </label>
-          </div>
-
-          <p v-if="modal.error" class="text-sm text-destructive">{{ modal.error }}</p>
-
-          <div class="flex justify-end gap-3 pt-2">
-            <AppButton variant="secondary" type="button" @click="closeModal">Cancel</AppButton>
-            <AppButton type="submit" :loading="modal.saving">
-              {{ modal.id ? 'Update' : 'Create' }}
-            </AppButton>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div class="flex justify-end gap-3 pt-2">
+          <AppButton variant="secondary" type="button" @click="closeModal">Cancel</AppButton>
+          <AppButton type="submit" :loading="modal.saving">
+            {{ modal.id ? 'Update' : 'Create' }}
+          </AppButton>
+        </div>
+      </form>
+    </AppModal>
   </div>
 </template>
 
@@ -144,6 +130,7 @@ import AppInput from '@/components/ui/AppInput.vue'
 import { useToast } from '@/composables/useToast'
 import { getApiError } from '@/api/client'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import AppModal from '@/components/ui/AppModal.vue'
 
 const toast = useToast()
 

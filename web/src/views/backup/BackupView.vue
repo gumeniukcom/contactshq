@@ -72,8 +72,8 @@
     </AppCard>
 
     <!-- Restore Modal -->
-    <div v-if="restoreTarget" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div class="bg-card border border-border rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+    <AppModal :show="!!restoreTarget" label="Restore from Backup" @close="closeRestore">
+      <div v-if="restoreTarget">
         <h3 class="text-lg font-semibold text-foreground mb-2">Restore from Backup</h3>
         <p class="text-sm text-muted-foreground mb-4">
           Restore <span class="font-medium">{{ restoreTarget.filename }}</span>
@@ -148,22 +148,17 @@
           </AppButton>
         </div>
       </div>
-    </div>
+    </AppModal>
 
-    <!-- Delete confirmation modal -->
-    <div v-if="deleteTarget" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div class="bg-card border border-border rounded-lg shadow-xl p-6 w-full max-w-sm mx-4">
-        <h3 class="text-lg font-semibold text-foreground mb-2">Delete Backup</h3>
-        <p class="text-sm text-muted-foreground mb-4">
-          Delete <span class="font-medium">{{ deleteTarget.filename }}</span
-          >? This cannot be undone.
-        </p>
-        <div class="flex justify-end gap-3">
-          <AppButton variant="secondary" @click="deleteTarget = null">Cancel</AppButton>
-          <AppButton variant="danger" :loading="deleting" @click="handleDelete">Delete</AppButton>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      :show="!!deleteTarget"
+      title="Delete Backup"
+      :message="`Delete ${deleteTarget?.filename}? This cannot be undone.`"
+      confirm-text="Delete"
+      :loading="deleting"
+      @confirm="handleDelete"
+      @cancel="deleteTarget = null"
+    />
   </div>
 </template>
 
@@ -187,6 +182,8 @@ import ScheduleInput from '@/components/ui/ScheduleInput.vue'
 import { BACKUP_PRESETS } from '@/utils/cron'
 import { useToast } from '@/composables/useToast'
 import { getApiError } from '@/api/client'
+import AppModal from '@/components/ui/AppModal.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 
 const toast = useToast()
 

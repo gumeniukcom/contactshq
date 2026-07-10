@@ -274,6 +274,50 @@ func (s *ContactService) Facets(ctx context.Context, userID string) (*repository
 	return s.contactRepo.Facets(ctx, ab.ID)
 }
 
+// MaxBulkIDs bounds a single bulk request. Selection happens a page at a time, so this
+// is well above anything the UI can produce, and it keeps a hostile payload from turning
+// into an unbounded IN clause.
+const MaxBulkIDs = 500
+
+var ErrTooManyIDs = errors.New("too many contact ids in one request")
+
+// DeleteMany removes several contacts at once and reports how many existed.
+//
+// The list view used to issue one DELETE per contact in a loop; a failure halfway
+// through left an unknown subset deleted and reported nothing.
+func (s *ContactService) DeleteMany(ctx context.Context, userID string, ids []string) (int, error) {
+	if len(ids) > MaxBulkIDs {
+		return 0, fmt.Errorf("%w: %d (max %d)", ErrTooManyIDs, len(ids), MaxBulkIDs)
+	}
+
+	ab, err := s.abRepo.GetOrCreateByUserID(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	if ab == nil {
+		return 0, ErrAddressBookNotFound
+	}
+
+	return s.contactRepo.DeleteMany(ctx, ab.ID, dedupe(ids))
+}
+
+// dedupe keeps the caller from inflating the row count with repeated ids.
+func dedupe(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 func (s *ContactService) DeleteAll(ctx context.Context, userID string) error {
 	ab, err := s.abRepo.GetOrCreateByUserID(ctx, userID)
 	if err != nil {

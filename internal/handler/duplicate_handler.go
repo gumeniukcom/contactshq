@@ -12,11 +12,11 @@ import (
 )
 
 type DuplicateHandler struct {
-	detector         *service.DuplicateDetector
-	merger           *service.MergeService
-	dupRepo          repository.PotentialDuplicateRepository
+	detector          *service.DuplicateDetector
+	merger            *service.MergeService
+	dupRepo           repository.PotentialDuplicateRepository
 	dedupSettingsRepo repository.UserDedupSettingsRepository
-	scheduler        *worker.Scheduler
+	scheduler         *worker.Scheduler
 }
 
 func NewDuplicateHandler(

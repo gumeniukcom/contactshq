@@ -128,13 +128,14 @@ POST   /api/v1/contacts
 GET    /api/v1/contacts/:id
 PUT    /api/v1/contacts/:id
 DELETE /api/v1/contacts/:id
+POST   /api/v1/contacts/bulk-delete   (body: {"ids": [...]}, max 500)
 DELETE /api/v1/contacts          (delete all)
 GET    /api/v1/contacts/:id/vcard
 GET    /api/v1/contacts/:id/qrcode
 
 POST   /api/v1/import/vcard
 POST   /api/v1/import/csv
-GET    /api/v1/export/vcard
+GET    /api/v1/export/vcard      (optional ?ids=id1,id2 to export a selection)
 GET    /api/v1/export/csv
 GET    /api/v1/export/json
 

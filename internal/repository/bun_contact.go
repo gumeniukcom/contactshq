@@ -186,6 +186,39 @@ func (r *BunContactRepository) Facets(ctx context.Context, addressBookID string)
 	return facets, nil
 }
 
+// DeleteMany removes the given contacts in one statement, scoped to the address book so
+// an id from another user's book cannot be deleted by guessing it.
+// It returns how many rows were actually removed.
+func (r *BunContactRepository) DeleteMany(ctx context.Context, addressBookID string, ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	res, err := r.db.NewDelete().Model((*domain.Contact)(nil)).
+		Where("address_book_id = ?", addressBookID).
+		Where("id IN (?)", bun.In(ids)).
+		Exec(ctx)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := res.RowsAffected()
+	return int(affected), err
+}
+
+// ListByIDs returns the named contacts of an address book, in the same order the list
+// view shows them.
+func (r *BunContactRepository) ListByIDs(ctx context.Context, addressBookID string, ids []string) ([]*domain.Contact, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var contacts []*domain.Contact
+	err := r.db.NewSelect().Model(&contacts).
+		Where("address_book_id = ?", addressBookID).
+		Where("id IN (?)", bun.In(ids)).
+		OrderExpr("last_name ASC, first_name ASC").
+		Scan(ctx)
+	return contacts, err
+}
+
 func (r *BunContactRepository) ListAll(ctx context.Context, addressBookID string) ([]*domain.Contact, error) {
 	var contacts []*domain.Contact
 	err := r.db.NewSelect().Model(&contacts).

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 
+	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
 )
 
@@ -22,12 +24,30 @@ func NewExporterService(contactRepo repository.ContactRepository, abRepo reposit
 }
 
 func (s *ExporterService) ExportVCard(ctx context.Context, userID string) (string, error) {
+	return s.ExportVCardByIDs(ctx, userID, nil)
+}
+
+// ExportVCardByIDs exports the named contacts, or the whole address book when ids is empty.
+//
+// The list view used to fetch each selected contact with its own request and quietly drop
+// the ones that failed, so the downloaded file could be missing contacts it claimed to
+// contain.
+func (s *ExporterService) ExportVCardByIDs(ctx context.Context, userID string, ids []string) (string, error) {
+	if len(ids) > MaxBulkIDs {
+		return "", fmt.Errorf("%w: %d (max %d)", ErrTooManyIDs, len(ids), MaxBulkIDs)
+	}
+
 	ab, err := s.abRepo.GetOrCreateByUserID(ctx, userID)
 	if err != nil {
 		return "", err
 	}
 
-	contacts, err := s.contactRepo.ListAll(ctx, ab.ID)
+	var contacts []*domain.Contact
+	if len(ids) == 0 {
+		contacts, err = s.contactRepo.ListAll(ctx, ab.ID)
+	} else {
+		contacts, err = s.contactRepo.ListByIDs(ctx, ab.ID, dedupe(ids))
+	}
 	if err != nil {
 		return "", err
 	}

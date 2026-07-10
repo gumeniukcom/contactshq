@@ -43,6 +43,19 @@ export function deleteContact(id: string) {
   return client.delete(`/contacts/${id}`)
 }
 
+/** Delete several contacts in one request. Returns how many actually existed. */
+export function bulkDeleteContacts(ids: string[]) {
+  return client.post<{ deleted: number; requested: number }>('/contacts/bulk-delete', { ids })
+}
+
+/** Export the named contacts as one vCard file; an empty list exports everything. */
+export function exportVCardByIds(ids: string[]) {
+  return client.get<string>('/export/vcard', {
+    params: ids.length ? { ids: ids.join(',') } : undefined,
+    responseType: 'text',
+  })
+}
+
 export function deleteAllContacts() {
   return client.delete('/contacts/')
 }

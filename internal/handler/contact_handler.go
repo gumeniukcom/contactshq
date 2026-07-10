@@ -154,6 +154,37 @@ func (h *ContactHandler) Delete(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "contact deleted"})
 }
 
+type bulkDeleteRequest struct {
+	IDs []string `json:"ids"`
+}
+
+// BulkDelete removes several contacts in one request, reporting how many existed.
+func (h *ContactHandler) BulkDelete(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	var req bulkDeleteRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+	if len(req.IDs) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ids is required"})
+	}
+
+	deleted, err := h.contactService.DeleteMany(c.Context(), userID, req.IDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrTooManyIDs):
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		case errors.Is(err, service.ErrAddressBookNotFound):
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "address book not found"})
+		default:
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to delete contacts"})
+		}
+	}
+
+	return c.JSON(fiber.Map{"deleted": deleted, "requested": len(req.IDs)})
+}
+
 func (h *ContactHandler) DeleteAll(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
 

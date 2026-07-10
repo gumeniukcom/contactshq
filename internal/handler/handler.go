@@ -75,6 +75,7 @@ func Register(app *fiber.App, svc Services) {
 	contacts.Get("/", contactHandler.List)
 	contacts.Get("/facets", contactHandler.Facets)
 	contacts.Post("/", contactHandler.Create)
+	contacts.Post("/bulk-delete", contactHandler.BulkDelete)
 	contacts.Delete("/", contactHandler.DeleteAll)
 
 	// Duplicate detection & merge (before /:id to avoid shadowing)

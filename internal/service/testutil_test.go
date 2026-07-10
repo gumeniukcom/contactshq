@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"sort"
 
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
@@ -65,6 +66,42 @@ func (m *mockContactRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *mockContactRepo) DeleteMany(_ context.Context, abID string, ids []string) (int, error) {
+	deleted := 0
+	for _, id := range ids {
+		c, ok := m.contacts[id]
+		if !ok || c.AddressBookID != abID {
+			continue
+		}
+		delete(m.byUID, c.AddressBookID+":"+c.UID)
+		delete(m.contacts, id)
+		deleted++
+	}
+	return deleted, nil
+}
+
+func (m *mockContactRepo) ListByIDs(_ context.Context, abID string, ids []string) ([]*domain.Contact, error) {
+	var out []*domain.Contact
+	for _, id := range ids {
+		if c, ok := m.contacts[id]; ok && c.AddressBookID == abID {
+			out = append(out, c)
+		}
+	}
+	return sortByName(out), nil
+}
+
+// sortByName mirrors the repository's ORDER BY. Map iteration would otherwise make every
+// listing non-deterministic, and tests would pass or fail at random.
+func sortByName(contacts []*domain.Contact) []*domain.Contact {
+	sort.SliceStable(contacts, func(i, j int) bool {
+		if contacts[i].LastName != contacts[j].LastName {
+			return contacts[i].LastName < contacts[j].LastName
+		}
+		return contacts[i].FirstName < contacts[j].FirstName
+	})
+	return contacts
+}
+
 func (m *mockContactRepo) DeleteAll(_ context.Context, abID string) error {
 	for id, c := range m.contacts {
 		if c.AddressBookID == abID {
@@ -90,7 +127,7 @@ func (m *mockContactRepo) ListAll(_ context.Context, abID string) ([]*domain.Con
 			out = append(out, c)
 		}
 	}
-	return out, nil
+	return sortByName(out), nil
 }
 
 // Child record methods — no-op in tests.

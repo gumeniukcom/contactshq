@@ -199,6 +199,11 @@ import ContactCard from '@/components/contacts/ContactCard.vue'
 import FilterBar from '@/components/contacts/FilterBar.vue'
 import BulkActionBar from '@/components/contacts/BulkActionBar.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { bulkDeleteContacts, exportVCardByIds } from '@/api/contacts'
+import { useToast } from '@/composables/useToast'
+import { getApiError } from '@/api/client'
+
+const toast = useToast()
 
 const router = useRouter()
 const store = useContactsStore()
@@ -337,41 +342,45 @@ async function handleDeleteAll() {
   }
 }
 
+// One request, one answer. Looping over DELETE meant a mid-loop failure left an unknown
+// subset deleted and said nothing about it.
 async function handleBulkDelete() {
   bulkDeleting.value = true
   try {
     const ids = [...selectedIds]
-    for (const id of ids) {
-      await store.deleteContact(id)
+    const { data } = await bulkDeleteContacts(ids)
+
+    if (data.deleted < data.requested) {
+      toast.info(`Deleted ${data.deleted} of ${data.requested} contacts; the rest no longer existed`)
+    } else {
+      toast.success(`Deleted ${data.deleted} contact${data.deleted === 1 ? '' : 's'}`)
     }
+
     selectedIds.clear()
     showBulkDelete.value = false
     load()
     store.fetchFacets()
+  } catch (err: unknown) {
+    toast.error(getApiError(err, 'Failed to delete contacts'))
   } finally {
     bulkDeleting.value = false
   }
 }
 
+// The old loop fetched one vCard per contact and silently skipped the ones that failed,
+// so the downloaded file could be missing contacts its own filename counted.
 async function handleBulkExport() {
-  // Export selected contacts as vCard
-  const { getVCard } = await import('@/api/contacts')
-  const vcards: string[] = []
-  for (const id of selectedIds) {
-    try {
-      const { data } = await getVCard(id)
-      vcards.push(data)
-    } catch {
-      // skip failed exports
-    }
+  const ids = [...selectedIds]
+  try {
+    const { data } = await exportVCardByIds(ids)
+    const url = URL.createObjectURL(new Blob([data], { type: 'text/vcard' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `contacts-${ids.length}.vcf`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (err: unknown) {
+    toast.error(getApiError(err, 'Failed to export contacts'))
   }
-  if (vcards.length === 0) return
-  const blob = new Blob([vcards.join('\n')], { type: 'text/vcard' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `contacts-${selectedIds.size}.vcf`
-  a.click()
-  URL.revokeObjectURL(url)
 }
 </script>
