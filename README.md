@@ -105,6 +105,7 @@ who knows the signing secret can mint tokens for any account, including admins.
 | `CHQ_DATABASE_DSN` | SQLite file path or PostgreSQL connection string |
 | `CHQ_AUTH_JWT_SECRET` | **Required.** JWT signing secret, min 32 chars |
 | `CHQ_SERVER_PORT` | HTTP port (default `8080`) |
+| `CHQ_SERVER_TRUSTED_PROXIES` | Comma-separated proxy IPs/CIDRs whose `X-Forwarded-For` to trust (set behind a reverse proxy) |
 
 ## Connect your devices
 

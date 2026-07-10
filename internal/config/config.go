@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -24,6 +25,9 @@ var weakJWTSecrets = map[string]struct{}{
 
 var ErrWeakJWTSecret = errors.New("insecure auth.jwt_secret")
 
+// ErrInvalidTrustedProxy flags a server.trusted_proxies entry that is neither an IP nor a CIDR.
+var ErrInvalidTrustedProxy = errors.New("invalid trusted proxy")
+
 // envBoundKeys lists every config key overridable via a CHQ_-prefixed env var.
 var envBoundKeys = []string{
 	"server.port",
@@ -36,6 +40,7 @@ var envBoundKeys = []string{
 	"google.client_id",
 	"google.client_secret",
 	"google.redirect_url",
+	"server.trusted_proxies",
 	"carddav.path_prefix",
 	"backup.dir",
 	"backup.schedule",
@@ -56,6 +61,12 @@ type Config struct {
 type ServerConfig struct {
 	Port int    `mapstructure:"port"`
 	Host string `mapstructure:"host"`
+
+	// TrustedProxies lists the reverse proxies whose X-Forwarded-For header may be
+	// believed, as IPs or CIDR ranges. Empty (the default) means the app trusts no
+	// forwarded header and treats the direct peer as the client — safe when exposed
+	// directly, but it collapses per-client rate limiting behind a proxy.
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type DatabaseConfig struct {
@@ -134,6 +145,10 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	// A list from an env var arrives as one comma-joined string; a YAML list arrives as
+	// separate elements. Normalise both to a clean slice.
+	cfg.Server.TrustedProxies = splitList(cfg.Server.TrustedProxies)
+
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -141,9 +156,41 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
+// splitList flattens comma-separated entries and drops blanks, so both a YAML list and a
+// single "a,b,c" env value produce the same result.
+func splitList(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		for _, part := range strings.Split(item, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
+}
+
 // Validate rejects configurations that are unsafe to serve traffic with.
 func (c *Config) Validate() error {
-	return c.Auth.validate()
+	if err := c.Auth.validate(); err != nil {
+		return err
+	}
+	return c.Server.validate()
+}
+
+func (s ServerConfig) validate() error {
+	// Fail fast on a typo rather than silently trusting nothing, which would leave the
+	// operator believing rate limiting keys on the real client.
+	for _, p := range s.TrustedProxies {
+		if net.ParseIP(p) != nil {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(p); err == nil {
+			continue
+		}
+		return fmt.Errorf("%w: %q is not an IP address or CIDR range", ErrInvalidTrustedProxy, p)
+	}
+	return nil
 }
 
 func (a AuthConfig) validate() error {

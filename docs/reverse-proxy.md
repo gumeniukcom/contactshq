@@ -61,15 +61,34 @@ services:
       - "traefik.http.services.contactshq.loadbalancer.server.port=8080"
 ```
 
-## A note on client IPs
+## Client IPs behind a proxy
 
 The auth endpoints are rate-limited per client IP. Behind a reverse proxy every request
-arrives from the proxy's address unless the proxy sets `X-Forwarded-For` **and** the app
-is told to trust it — which ContactsHQ does not do by default, so the limit is currently
-shared across all clients behind the proxy. The limits are generous enough that normal use
-is unaffected; this only matters if you expect many legitimate logins from behind a single
-proxy. The nginx and Caddy examples above already forward the header, ready for when
-per-client limiting is added.
+arrives from the proxy's own address, so without further configuration the limit is shared
+across everyone behind the proxy.
+
+To restore per-client limiting, tell ContactsHQ which proxies may set `X-Forwarded-For`.
+List the proxy's address (or CIDR range) — never `0.0.0.0/0`, which would let any client
+spoof the header:
+
+```yaml
+server:
+  trusted_proxies:
+    - 127.0.0.1        # proxy on the same host
+    - 10.0.0.0/8       # or a private range
+```
+
+or via environment variable (comma-separated):
+
+```bash
+CHQ_SERVER_TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8
+```
+
+The server validates every entry at startup and refuses to boot on a malformed IP or CIDR.
+When the request's direct peer matches a trusted entry, the client IP is taken from the
+leftmost `X-Forwarded-For` value; otherwise the header is ignored and the direct peer is
+used, so a spoofed header from an untrusted source cannot forge a new rate-limit bucket.
+The nginx and Caddy examples above already forward the header.
 
 ## Health checks
 

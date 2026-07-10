@@ -169,12 +169,24 @@ func main() {
 	// Fiber only routes methods listed in RequestMethods and answers 400 to anything
 	// else, so the CardDAV verbs must be registered here or the /dav mount is
 	// unreachable to every client.
-	app := fiber.New(fiber.Config{
+	fiberCfg := fiber.Config{
 		AppName:        "ContactsHQ",
 		BodyLimit:      10 * 1024 * 1024, // 10MB
 		ErrorHandler:   errorHandler,
 		RequestMethods: append(fiber.DefaultMethods, webdavMethods...),
-	})
+	}
+	// Only believe X-Forwarded-For when the request actually came through a configured
+	// proxy. Without this the header is spoofable, so it stays off — and c.IP(), which
+	// keys the auth rate limiter, is the direct peer — unless trusted proxies are set.
+	if len(cfg.Server.TrustedProxies) > 0 {
+		fiberCfg.ProxyHeader = fiber.HeaderXForwardedFor
+		fiberCfg.EnableTrustedProxyCheck = true
+		fiberCfg.TrustedProxies = cfg.Server.TrustedProxies
+		fiberCfg.EnableIPValidation = true // return the first valid IP, not the raw header
+		logger.Info("trusting X-Forwarded-For from configured proxies",
+			zap.Strings("trusted_proxies", cfg.Server.TrustedProxies))
+	}
+	app := fiber.New(fiberCfg)
 
 	app.Use(recover.New())
 	app.Use(cors.New())
