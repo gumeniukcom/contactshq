@@ -41,6 +41,14 @@ func (r *BunContactRepository) Save(ctx context.Context, contact *domain.Contact
 	assignChildIDs(contact.ID, &children)
 
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// The collection's change counter moves with the write, so a CardDAV client can
+		// tell that something happened without re-reading every contact.
+		seq, err := nextChangeSeq(ctx, tx, contact.AddressBookID)
+		if err != nil {
+			return err
+		}
+		contact.ChangeSeq = seq
+
 		res, err := tx.NewUpdate().Model(contact).WherePK().Exec(ctx)
 		if err != nil {
 			return err
@@ -50,6 +58,10 @@ func (r *BunContactRepository) Save(ctx context.Context, contact *domain.Contact
 			return err
 		}
 		if affected == 0 {
+			// A UID can come back after a delete; its tombstone must not outlive it.
+			if err := dropTombstones(ctx, tx, contact.AddressBookID, []string{contact.UID}); err != nil {
+				return err
+			}
 			if _, err := tx.NewInsert().Model(contact).Exec(ctx); err != nil {
 				return err
 			}

@@ -171,3 +171,42 @@ func childRecordsFixture() domain.ChildRecords {
 		Categories: []*domain.ContactCategory{{Value: "vip"}},
 	}
 }
+
+// The change journal bumps a counter with UPDATE ... RETURNING inside the write's
+// transaction. RETURNING is the kind of thing that differs between dialects.
+func TestPostgres_ChangeJournal(t *testing.T) {
+	db := setupPostgres(t)
+	ctx := context.Background()
+	require.NoError(t, repository.Migrate(ctx, db))
+
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash) VALUES ('u1', 'a@example.com', 'x')`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO address_books (id, user_id, name) VALUES ('ab1', 'u1', 'Contacts')`)
+	require.NoError(t, err)
+
+	repo := repository.NewBunContactRepository(db)
+	abRepo := repository.NewBunAddressBookRepository(db)
+
+	start, err := abRepo.ChangeSeq(ctx, "ab1")
+	require.NoError(t, err)
+
+	c := newContact("ab1")
+	c.UID = "u-1"
+	require.NoError(t, repo.Save(ctx, c, domain.ChildRecords{}))
+
+	afterWrite, err := abRepo.ChangeSeq(ctx, "ab1")
+	require.NoError(t, err)
+	assert.Greater(t, afterWrite, start, "UPDATE ... RETURNING must advance the counter")
+
+	baseline, err := repo.ChangesSince(ctx, "ab1", 0)
+	require.NoError(t, err)
+	require.Len(t, baseline.Updated, 1)
+
+	require.NoError(t, repo.Delete(ctx, c.ID))
+
+	changes, err := repo.ChangesSince(ctx, "ab1", baseline.Seq)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"u-1"}, changes.DeletedUIDs, "the tombstone must be readable on PostgreSQL")
+}

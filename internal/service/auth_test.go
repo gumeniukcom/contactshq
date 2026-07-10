@@ -165,6 +165,7 @@ func (m *mockAddressBookRepo) GetByUserID(context.Context, string) (*domain.Addr
 func (m *mockAddressBookRepo) GetOrCreateByUserID(context.Context, string) (*domain.AddressBook, error) {
 	return nil, nil
 }
+func (m *mockAddressBookRepo) ChangeSeq(context.Context, string) (int64, error)  { return 0, nil }
 func (m *mockAddressBookRepo) Update(context.Context, *domain.AddressBook) error { return nil }
 func (m *mockAddressBookRepo) Delete(context.Context, string) error              { return nil }
 

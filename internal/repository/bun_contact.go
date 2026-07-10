@@ -56,8 +56,19 @@ func NewBunContactRepository(db *bun.DB) *BunContactRepository {
 }
 
 func (r *BunContactRepository) Create(ctx context.Context, contact *domain.Contact) error {
-	_, err := r.db.NewInsert().Model(contact).Exec(ctx)
-	return err
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		seq, err := nextChangeSeq(ctx, tx, contact.AddressBookID)
+		if err != nil {
+			return err
+		}
+		contact.ChangeSeq = seq
+
+		if err := dropTombstones(ctx, tx, contact.AddressBookID, []string{contact.UID}); err != nil {
+			return err
+		}
+		_, err = tx.NewInsert().Model(contact).Exec(ctx)
+		return err
+	})
 }
 
 func (r *BunContactRepository) GetByID(ctx context.Context, id string) (*domain.Contact, error) {
@@ -87,13 +98,58 @@ func (r *BunContactRepository) Update(ctx context.Context, contact *domain.Conta
 }
 
 func (r *BunContactRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.db.NewDelete().Model((*domain.Contact)(nil)).Where("id = ?", id).Exec(ctx)
-	return err
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		contact := new(domain.Contact)
+		err := tx.NewSelect().Model(contact).Where("id = ?", id).Scan(ctx)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		if _, err := tx.NewDelete().Model((*domain.Contact)(nil)).Where("id = ?", id).Exec(ctx); err != nil {
+			return err
+		}
+
+		seq, err := nextChangeSeq(ctx, tx, contact.AddressBookID)
+		if err != nil {
+			return err
+		}
+		return recordDeletions(ctx, tx, contact.AddressBookID, []string{contact.UID}, seq)
+	})
 }
 
 func (r *BunContactRepository) DeleteAll(ctx context.Context, addressBookID string) error {
-	_, err := r.db.NewDelete().Model((*domain.Contact)(nil)).Where("address_book_id = ?", addressBookID).Exec(ctx)
-	return err
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		uids, err := uidsOf(ctx, tx, addressBookID, nil)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.NewDelete().Model((*domain.Contact)(nil)).
+			Where("address_book_id = ?", addressBookID).Exec(ctx); err != nil {
+			return err
+		}
+
+		seq, err := nextChangeSeq(ctx, tx, addressBookID)
+		if err != nil {
+			return err
+		}
+		return recordDeletions(ctx, tx, addressBookID, uids, seq)
+	})
+}
+
+// uidsOf lists the UIDs of an address book, optionally restricted to the given ids.
+func uidsOf(ctx context.Context, tx bun.Tx, addressBookID string, ids []string) ([]string, error) {
+	var uids []string
+	q := tx.NewSelect().Model((*domain.Contact)(nil)).
+		Column("uid").
+		Where("address_book_id = ?", addressBookID)
+	if ids != nil {
+		q = q.Where("id IN (?)", bun.In(ids))
+	}
+	err := q.Scan(ctx, &uids)
+	return uids, err
 }
 
 func (r *BunContactRepository) List(ctx context.Context, addressBookID string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error) {
@@ -193,15 +249,33 @@ func (r *BunContactRepository) DeleteMany(ctx context.Context, addressBookID str
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	res, err := r.db.NewDelete().Model((*domain.Contact)(nil)).
-		Where("address_book_id = ?", addressBookID).
-		Where("id IN (?)", bun.In(ids)).
-		Exec(ctx)
-	if err != nil {
-		return 0, err
-	}
-	affected, err := res.RowsAffected()
-	return int(affected), err
+	var deleted int
+	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		uids, err := uidsOf(ctx, tx, addressBookID, ids)
+		if err != nil {
+			return err
+		}
+
+		res, err := tx.NewDelete().Model((*domain.Contact)(nil)).
+			Where("address_book_id = ?", addressBookID).
+			Where("id IN (?)", bun.In(ids)).
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		deleted = int(affected)
+
+		seq, err := nextChangeSeq(ctx, tx, addressBookID)
+		if err != nil {
+			return err
+		}
+		return recordDeletions(ctx, tx, addressBookID, uids, seq)
+	})
+	return deleted, err
 }
 
 // ListByIDs returns the named contacts of an address book, in the same order the list

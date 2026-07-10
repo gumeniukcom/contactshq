@@ -23,6 +23,8 @@ type AddressBookRepository interface {
 	GetByUserID(ctx context.Context, userID string) (*domain.AddressBook, error)
 	// GetOrCreateByUserID returns the address book for userID, creating it if it doesn't exist.
 	GetOrCreateByUserID(ctx context.Context, userID string) (*domain.AddressBook, error)
+	// ChangeSeq is the collection's CTag: it advances on every write to its contacts.
+	ChangeSeq(ctx context.Context, addressBookID string) (int64, error)
 	Update(ctx context.Context, ab *domain.AddressBook) error
 	Delete(ctx context.Context, id string) error
 }
@@ -49,6 +51,9 @@ type ContactRepository interface {
 
 	// Versions that also load child records
 	DeleteMany(ctx context.Context, addressBookID string, ids []string) (int, error)
+
+	// ChangesSince powers RFC 6578 collection synchronisation.
+	ChangesSince(ctx context.Context, addressBookID string, sinceSeq int64) (*CollectionChanges, error)
 	ListByIDs(ctx context.Context, addressBookID string, ids []string) ([]*domain.Contact, error)
 
 	// Save writes a contact and all of its child rows atomically.

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -429,4 +430,198 @@ func TestETagHeaderIsSingleQuoted(t *testing.T) {
 		require.NotContains(t, inner, `"`, "%s ETag %q is doubly quoted", name, etag)
 		require.NotEmpty(t, inner)
 	}
+}
+
+// --- CTag and RFC 6578 collection synchronisation ---
+
+const xmlContentType = "application/xml"
+
+func bookPath() string { return chqcarddav.AddressBookPath(davPrefix, testEmail) }
+
+func propfind(t *testing.T, srv *chqcarddav.Server, depth, body string) (*http.Response, string) {
+	t.Helper()
+
+	resp := do(t, srv, "PROPFIND", bookPath(), body,
+		map[string]string{"Depth": depth, "Content-Type": xmlContentType})
+	return resp, readBody(t, resp)
+}
+
+func syncCollection(t *testing.T, srv *chqcarddav.Server, token string, withData bool) (*http.Response, string) {
+	t.Helper()
+
+	data := ""
+	if withData {
+		data = `<c:address-data/>`
+	}
+	body := `<?xml version="1.0"?><d:sync-collection xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav">` +
+		`<d:sync-token>` + token + `</d:sync-token><d:sync-level>1</d:sync-level>` +
+		`<d:prop><d:getetag/>` + data + `</d:prop></d:sync-collection>`
+
+	resp := do(t, srv, "REPORT", bookPath(), body,
+		map[string]string{"Depth": "1", "Content-Type": xmlContentType})
+	return resp, readBody(t, resp)
+}
+
+func ctagOf(t *testing.T, srv *chqcarddav.Server) string {
+	t.Helper()
+
+	_, body := propfind(t, srv, "0",
+		`<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">`+
+			`<d:prop><cs:getctag/></d:prop></d:propfind>`)
+
+	m := regexp.MustCompile(`<CS:getctag>([^<]*)</CS:getctag>`).FindStringSubmatch(body)
+	require.Len(t, m, 2, "no CTag in response: %s", body)
+	return m[1]
+}
+
+func tokenOf(t *testing.T, body string) string {
+	t.Helper()
+
+	m := regexp.MustCompile(`<D:sync-token>([^<]*)</D:sync-token>`).FindStringSubmatch(body)
+	require.Len(t, m, 2, "no sync token in response: %s", body)
+	return m[1]
+}
+
+func putContact(t *testing.T, srv *chqcarddav.Server, uid string) {
+	t.Helper()
+
+	card := "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:" + uid + "\r\nFN:" + uid + "\r\nEND:VCARD\r\n"
+	resp := do(t, srv, http.MethodPut, chqcarddav.AddressObjectPath(davPrefix, testEmail, uid), card,
+		map[string]string{"Content-Type": "text/vcard"})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+}
+
+// Without a CTag a client cannot ask "did anything change" and re-reads every ETag on
+// every poll.
+func TestCTagChangesOnWriteAndIsStableOtherwise(t *testing.T) {
+	srv, _, _ := setupServer(t)
+
+	before := ctagOf(t, srv)
+	require.Equal(t, before, ctagOf(t, srv), "reading the collection must not change its CTag")
+
+	putContact(t, srv, "u1")
+	afterCreate := ctagOf(t, srv)
+	require.NotEqual(t, before, afterCreate, "a new contact must advance the CTag")
+
+	putContact(t, srv, "u1") // update
+	afterUpdate := ctagOf(t, srv)
+	require.NotEqual(t, afterCreate, afterUpdate, "an updated contact must advance the CTag")
+
+	del := do(t, srv, http.MethodDelete, chqcarddav.AddressObjectPath(davPrefix, testEmail, "u1"), "", nil)
+	require.Equal(t, http.StatusNoContent, del.StatusCode)
+	require.NotEqual(t, afterUpdate, ctagOf(t, srv), "a deleted contact must advance the CTag")
+}
+
+func TestPropfindAdvertisesSyncCollectionSupport(t *testing.T) {
+	srv, _, _ := setupServer(t)
+
+	_, body := propfind(t, srv, "0",
+		`<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">`+
+			`<d:prop><cs:getctag/><d:supported-report-set/></d:prop></d:propfind>`)
+
+	require.Contains(t, body, "sync-collection", "clients discover support through supported-report-set")
+	require.Contains(t, body, "addressbook-multiget")
+}
+
+// A PROPFIND that does not ask for our extensions must reach go-webdav untouched.
+func TestPropfindWithoutCTagIsDelegated(t *testing.T) {
+	srv, _, _ := setupServer(t)
+	putContact(t, srv, "u1")
+
+	resp, body := propfind(t, srv, "1",
+		`<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>`)
+
+	require.Equal(t, http.StatusMultiStatus, resp.StatusCode)
+	require.Contains(t, body, "u1.vcf")
+}
+
+func TestSyncCollection_EmptyTokenReturnsWholeCollection(t *testing.T) {
+	srv, _, _ := setupServer(t)
+	putContact(t, srv, "u1")
+	putContact(t, srv, "u2")
+
+	resp, body := syncCollection(t, srv, "", false)
+
+	require.Equal(t, http.StatusMultiStatus, resp.StatusCode)
+	require.Contains(t, body, "u1.vcf")
+	require.Contains(t, body, "u2.vcf")
+	require.NotContains(t, body, "404 Not Found", "a first sync has nothing to delete")
+	require.NotEmpty(t, tokenOf(t, body))
+}
+
+// The point of the whole exercise: a poll that finds nothing new says nothing.
+func TestSyncCollection_UnchangedCollectionReturnsEmptyDelta(t *testing.T) {
+	srv, _, _ := setupServer(t)
+	putContact(t, srv, "u1")
+
+	_, first := syncCollection(t, srv, "", false)
+	_, second := syncCollection(t, srv, tokenOf(t, first), false)
+
+	require.NotContains(t, second, "u1.vcf", "a contact the client already has must not repeat")
+	require.Equal(t, tokenOf(t, first), tokenOf(t, second), "an unchanged collection keeps its token")
+}
+
+func TestSyncCollection_ReportsCreationsAndDeletions(t *testing.T) {
+	srv, _, _ := setupServer(t)
+	putContact(t, srv, "u1")
+	putContact(t, srv, "u2")
+
+	_, first := syncCollection(t, srv, "", false)
+	token := tokenOf(t, first)
+
+	putContact(t, srv, "u3")
+	del := do(t, srv, http.MethodDelete, chqcarddav.AddressObjectPath(davPrefix, testEmail, "u1"), "", nil)
+	require.Equal(t, http.StatusNoContent, del.StatusCode)
+
+	_, body := syncCollection(t, srv, token, false)
+
+	require.Contains(t, body, "u3.vcf", "the new contact must be reported")
+	require.Contains(t, body, "u1.vcf", "the deleted contact must be named")
+	require.Contains(t, body, "404 Not Found", "deletion is spelled as a 404 response")
+	require.NotContains(t, body, "u2.vcf", "an untouched contact must not repeat")
+}
+
+func TestSyncCollection_CarriesCardsWhenAddressDataRequested(t *testing.T) {
+	srv, _, _ := setupServer(t)
+	putContact(t, srv, "u1")
+
+	_, body := syncCollection(t, srv, "", true)
+
+	require.Contains(t, body, "address-data")
+	// The card is XML-escaped; a client's parser restores it.
+	require.Contains(t, body, "BEGIN:VCARD")
+	require.Contains(t, body, "UID:u1")
+}
+
+// A token this server never issued must not be honoured: answering an empty delta would
+// leave the client permanently out of date.
+func TestSyncCollection_RejectsUnknownTokens(t *testing.T) {
+	srv, _, _ := setupServer(t)
+	putContact(t, srv, "u1")
+
+	for name, token := range map[string]string{
+		"garbage":       "garbage",
+		"foreign":       "http://other.example/sync/7",
+		"from the futu": "urn:contactshq:sync:9999",
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp, body := syncCollection(t, srv, token, false)
+			require.Equal(t, http.StatusForbidden, resp.StatusCode)
+			require.Contains(t, body, "valid-sync-token")
+		})
+	}
+}
+
+// addressbook-query and addressbook-multiget must still reach go-webdav.
+func TestReportOtherThanSyncCollectionIsDelegated(t *testing.T) {
+	srv, _, _ := setupServer(t)
+	putContact(t, srv, "u1")
+
+	const query = `<?xml version="1.0"?><C:addressbook-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">` +
+		`<D:prop><D:getetag/></D:prop></C:addressbook-query>`
+
+	resp := do(t, srv, "REPORT", bookPath(), query,
+		map[string]string{"Depth": "1", "Content-Type": xmlContentType})
+	require.Equal(t, http.StatusMultiStatus, resp.StatusCode)
+	require.Contains(t, readBody(t, resp), "u1.vcf")
 }

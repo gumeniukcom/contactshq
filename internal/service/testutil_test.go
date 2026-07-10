@@ -165,6 +165,13 @@ func (m *mockContactRepo) ListWithRelations(_ context.Context, _ string, _, _ in
 func (m *mockContactRepo) SearchWithRelations(_ context.Context, _, _ string, _, _ int, _ repository.ListFilters) ([]*domain.Contact, int, error) {
 	return nil, 0, nil
 }
+func (m *mockContactRepo) ChangesSince(_ context.Context, _ string, _ int64) (*repository.CollectionChanges, error) {
+	return &repository.CollectionChanges{}, nil
+}
+func (m *mockContactRepo) OldestTombstoneSeq(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
 func (m *mockContactRepo) Facets(_ context.Context, _ string) (*repository.ContactFacets, error) {
 	return &repository.ContactFacets{Categories: []string{}, Orgs: []string{}}, nil
 }
@@ -188,6 +195,8 @@ func (m *mockAbRepo) GetByUserID(_ context.Context, _ string) (*domain.AddressBo
 func (m *mockAbRepo) GetOrCreateByUserID(_ context.Context, _ string) (*domain.AddressBook, error) {
 	return m.ab, nil
 }
+
+func (m *mockAbRepo) ChangeSeq(_ context.Context, _ string) (int64, error) { return 0, nil }
 
 func (m *mockAbRepo) Update(_ context.Context, ab *domain.AddressBook) error { return nil }
 

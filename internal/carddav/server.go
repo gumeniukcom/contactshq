@@ -1,8 +1,10 @@
 package carddav
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"strings"
 
@@ -67,7 +69,48 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = WithUserEmail(ctx, verdict.userEmail)
 	r = r.WithContext(ctx)
 
+	if s.serveSyncExtensions(w, r) {
+		return
+	}
+
 	s.handler.ServeHTTP(w, r)
+}
+
+// serveSyncExtensions answers the two requests go-webdav cannot: the CalendarServer CTag
+// and RFC 6578 sync-collection. Everything else falls through untouched.
+func (s *Server) serveSyncExtensions(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != "PROPFIND" && r.Method != "REPORT" {
+		return false
+	}
+	if !isAddressBookPath(r.URL.Path, s.backend.prefix, GetUserEmail(r.Context())) {
+		return false
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxSyncRequestBody))
+	if err != nil {
+		return false
+	}
+	// The delegated handler still needs to read the body.
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	switch r.Method {
+	case "PROPFIND":
+		return s.handlePropfindCTag(w, r, body)
+	case "REPORT":
+		return s.handleSyncCollection(w, r, body)
+	}
+	return false
+}
+
+// maxSyncRequestBody bounds the XML we buffer before deciding who handles the request.
+const maxSyncRequestBody = 1 << 20
+
+func isAddressBookPath(path, prefix, email string) bool {
+	if email == "" {
+		return false
+	}
+	want := AddressBookPath(prefix, email)
+	return path == want || path+"/" == want
 }
 
 // authenticate verifies Basic-auth credentials, consulting the short-lived verdict

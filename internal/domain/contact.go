@@ -13,13 +13,17 @@ type Contact struct {
 	AddressBookID string `bun:",notnull" json:"address_book_id"`
 	UID           string `bun:",notnull" json:"uid"`
 	ETag          string `bun:"etag,notnull" json:"etag"`
-	VCardData     string `bun:"vcard_data,type:text,notnull" json:"vcard_data,omitempty"`
-	FirstName     string `bun:",default:''" json:"first_name"`
-	LastName      string `bun:",default:''" json:"last_name"`
-	MiddleName    string `bun:",default:''" json:"middle_name"`
-	NamePrefix    string `bun:",default:''" json:"name_prefix"`
-	NameSuffix    string `bun:",default:''" json:"name_suffix"`
-	Nickname      string `bun:",default:''" json:"nickname"`
+	// ChangeSeq is the address book's change counter at the time of the last write to
+	// this contact. Clients synchronising the collection ask for everything above their
+	// last seen value.
+	ChangeSeq  int64  `bun:"change_seq,notnull,default:0" json:"-"`
+	VCardData  string `bun:"vcard_data,type:text,notnull" json:"vcard_data,omitempty"`
+	FirstName  string `bun:",default:''" json:"first_name"`
+	LastName   string `bun:",default:''" json:"last_name"`
+	MiddleName string `bun:",default:''" json:"middle_name"`
+	NamePrefix string `bun:",default:''" json:"name_prefix"`
+	NameSuffix string `bun:",default:''" json:"name_suffix"`
+	Nickname   string `bun:",default:''" json:"nickname"`
 
 	// Primary (pref=1 or first) — denormalised for fast display
 	Email string `bun:",default:''" json:"email"`
