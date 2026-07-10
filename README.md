@@ -6,7 +6,8 @@ A self-hosted contact management hub with a CardDAV server, multi-provider sync 
 
 - **Centralized address book** — store and manage all contacts in one place with full vCard 4.0 support (names, emails, phones, addresses, IMs, URLs, categories, dates, and more)
 - **CardDAV server** — expose your contacts as a standard CardDAV endpoint, compatible with macOS Contacts, iOS, Thunderbird, and any CalDAV/CardDAV client; supports CTag and RFC 6578 collection sync, so clients fetch only what changed
-- **Sync pipelines** — move contacts between external providers (Fastmail, iCloud, Nextcloud, Google) and your address book on a schedule or on demand; each step is an import, an export, or a two-way sync
+- **Sync pipelines** — move contacts between external providers (Fastmail, iCloud, Nextcloud, Google) and your address book on a schedule or on demand; each step is an import, an export, or a two-way sync ([how it works](docs/sync.md))
+- **Incremental sync** — providers that support it (Google via a sync token, CardDAV via RFC 6578) send only what changed since the last run; exports write conditionally so a concurrent edit becomes a conflict rather than being overwritten
 - **Three-way merge** — when a contact is modified both locally and on a remote source, the engine merges changes field-by-field automatically; unresolvable conflicts are queued for manual review
 - **Conflict resolution UI** — inspect field-level diffs between base/local/remote versions and resolve each field individually
 - **Duplicate detection** — score-based detection (email, phone, name similarity) surfaces potential duplicates for review and merging
@@ -32,7 +33,7 @@ A self-hosted contact management hub with a CardDAV server, multi-provider sync 
 | Configuration | [Viper](https://github.com/spf13/viper) (YAML + env vars) |
 | Scheduler | [gocron v2](https://github.com/go-co-op/gocron) |
 | Logging | [zap](https://github.com/uber-go/zap) |
-| Migrations | Custom sequential SQL runner |
+| Migrations | Embedded SQL, applied transactionally at startup |
 
 ### Frontend
 | Component | Technology |
@@ -174,16 +175,55 @@ CardDAV address book: /dav/{email}/addressbooks/contacts/
 .well-known/carddav → /dav/ (RFC 6764)
 ```
 
+The CardDAV server supports the CalendarServer CTag extension and RFC 6578
+`sync-collection`, so clients fetch only what changed rather than the whole address book
+on every poll.
+
+`GET /health` reports the version and, when configured with a database, its
+connectivity — it returns `503` with `"status":"degraded"` when the database is
+unreachable, which is what the container's `HEALTHCHECK` and a monitoring probe should
+watch.
+
 ## Development
 
 ```bash
-make build    # build binary (includes frontend embed)
+make build    # build frontend + binary (frontend is embedded via go:embed)
 make run      # build and run
-make test     # run all tests
+make test     # run the Go test suite
+make lint     # golangci-lint
 make clean    # remove build artifacts
 ```
 
-Tests use in-memory SQLite and cover the repository, service, sync engine, and worker layers.
+### Testing
+
+The Go suite runs against in-memory SQLite and covers the repository, service, sync
+engine, CardDAV server, HTTP handlers, and worker. Run it with the race detector the way
+CI does:
+
+```bash
+go test ./... -race
+```
+
+PostgreSQL-specific tests (migrations, the change journal, cursor upserts) are skipped
+unless a database is pointed at them — CI runs them against a real PostgreSQL:
+
+```bash
+TEST_POSTGRES_DSN='postgres://user:pass@localhost:5432/chqtest?sslmode=disable' \
+  go test ./internal/repository/ -run TestPostgres
+```
+
+The frontend has its own gates:
+
+```bash
+cd web
+npm run lint          # ESLint
+npm run format:check  # Prettier
+npm run test          # Vitest
+```
+
+CI (`.github/workflows/ci.yml`) runs all of the above — Go tests with `-race`,
+`golangci-lint`, the PostgreSQL suite, the frontend gates, and a Docker image build that
+must come up healthy — on every push and pull request.
 
 ## License
 

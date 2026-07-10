@@ -61,6 +61,23 @@ services:
       - "traefik.http.services.contactshq.loadbalancer.server.port=8080"
 ```
 
+## A note on client IPs
+
+The auth endpoints are rate-limited per client IP. Behind a reverse proxy every request
+arrives from the proxy's address unless the proxy sets `X-Forwarded-For` **and** the app
+is told to trust it — which ContactsHQ does not do by default, so the limit is currently
+shared across all clients behind the proxy. The limits are generous enough that normal use
+is unaffected; this only matters if you expect many legitimate logins from behind a single
+proxy. The nginx and Caddy examples above already forward the header, ready for when
+per-client limiting is added.
+
+## Health checks
+
+`GET /health` returns `200` when the database is reachable and `503` with
+`"status":"degraded"` when it is not. Point your uptime monitor at it — an unreachable
+database is exactly the failure a plain "is the port open" check misses. The Docker image's
+`HEALTHCHECK` already uses it.
+
 ## Verifying
 
 After setting up your reverse proxy, verify CardDAV auto-discovery:
