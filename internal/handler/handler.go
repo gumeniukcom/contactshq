@@ -1,13 +1,21 @@
 package handler
 
 import (
+	"context"
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gumeniukcom/contactshq/internal/handler/middleware"
 	"github.com/gumeniukcom/contactshq/internal/repository"
 	"github.com/gumeniukcom/contactshq/internal/service"
 	chqsync "github.com/gumeniukcom/contactshq/internal/sync"
 	"github.com/gumeniukcom/contactshq/internal/worker"
+	"github.com/uptrace/bun"
 )
+
+// dbPingTimeout keeps a stalled database from turning the health endpoint into
+// another thing that hangs.
+const dbPingTimeout = 2 * time.Second
 
 type Services struct {
 	Version           string
@@ -34,6 +42,9 @@ type Services struct {
 	GoogleOAuth       *service.GoogleOAuthService
 	AppPassword       *service.AppPasswordService
 	SyncConflict      *service.SyncConflictService
+
+	// DB backs the health check's connectivity probe.
+	DB *bun.DB
 }
 
 func Register(app *fiber.App, svc Services) {
@@ -197,11 +208,28 @@ func Register(app *fiber.App, svc Services) {
 	admin.Delete("/users/:id", adminHandler.DeleteUser)
 
 	// Health check
+	// A health check that only proves the process is running is worse than none: it told
+	// container orchestrators everything was fine while every request 500'd against a
+	// database the server could not reach.
 	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
+		body := fiber.Map{
 			"status":     "ok",
 			"version":    svc.Version,
 			"build_time": svc.BuildTime,
-		})
+		}
+
+		if svc.DB != nil {
+			ctx, cancel := context.WithTimeout(c.Context(), dbPingTimeout)
+			defer cancel()
+
+			if err := svc.DB.PingContext(ctx); err != nil {
+				body["status"] = "degraded"
+				body["database"] = "unreachable"
+				return c.Status(fiber.StatusServiceUnavailable).JSON(body)
+			}
+			body["database"] = "ok"
+		}
+
+		return c.JSON(body)
 	})
 }

@@ -54,7 +54,7 @@ func setupServer(t *testing.T) (*chqcarddav.Server, *bun.DB, string) {
 	require.NoError(t, err)
 	sqldb.SetMaxOpenConns(1)
 	db := bun.NewDB(sqldb, sqlitedialect.New())
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 
 	require.NoError(t, repository.Migrate(ctx, db))
 

@@ -1,0 +1,22 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  exclusions:
+    paths:
+      # Vendored Go sources ship inside some npm packages; they are not ours.
+      - web/node_modules
+    rules:
+      # A deferred Close on a reader is idiomatic and its error is not actionable.
+      - linters: [errcheck]
+        source: '^\s*defer .*\.Close\(\)$'
+      # bun.In still works and is what the driver documents for IN clauses; bun.List and
+      # bun.Tuple are not drop-in replacements for a plain id list.
+      - linters: [staticcheck]
+        text: 'SA1019: bun.In is deprecated'
+      # Reaching through an embedded Field reads clearer than relying on promotion here.
+      - linters: [staticcheck]
+        text: 'QF1008'

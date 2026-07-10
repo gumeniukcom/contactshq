@@ -28,6 +28,15 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # Installed directly rather than via the action: the action's major versions track
+      # golangci-lint v1, and .golangci.yml is a v2 config. A pinned version also keeps
+      # CI from turning red on someone else's release day.
+      - name: golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+          "$(go env GOPATH)/bin/golangci-lint" run ./...
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
@@ -82,3 +91,45 @@ jobs:
 
       - name: Build binary
         run: CGO_ENABLED=0 go build -o contactshq ./cmd/server
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    needs: [test, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      # The release workflow is the first place a broken Dockerfile used to surface,
+      # by which point the tag already exists.
+      - name: Build image
+        run: docker build -t contactshq:ci .
+
+      - name: Start container
+        run: |
+          docker run -d --name chq -p 8080:8080 \
+            -e CHQ_AUTH_JWT_SECRET="$(openssl rand -hex 32)" \
+            contactshq:ci
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' chq)
+            [ "$status" = "healthy" ] && exit 0
+            [ "$status" = "unhealthy" ] && break
+            sleep 2
+          done
+          echo "container never became healthy"
+          docker logs chq
+          exit 1
+
+      - name: Migrations ran inside the image
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/api/v1/auth/register \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"correct-horse-battery","display_name":"CI"}')
+          [ "$code" = "201" ] || { echo "register returned $code"; docker logs chq; exit 1; }
+
+      - name: Runs unprivileged
+        run: |
+          uid=$(docker exec chq id -u)
+          [ "$uid" != "0" ] || { echo "container runs as root"; exit 1; }

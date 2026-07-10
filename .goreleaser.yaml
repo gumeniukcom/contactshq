@@ -36,7 +36,8 @@ dockers:
     goarch: amd64
     image_templates:
       - "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}-amd64"
-      - "ghcr.io/gumeniukcom/contactshq:latest-amd64"
+      # A prerelease tag must not move :latest onto an unstable build.
+      - "ghcr.io/gumeniukcom/contactshq:{{ if .Prerelease }}{{ .Tag }}{{ else }}latest{{ end }}-amd64"
     dockerfile: Dockerfile.goreleaser
     build_flag_templates:
       - "--platform=linux/amd64"
@@ -46,14 +47,13 @@ dockers:
       - "--label=org.opencontainers.image.licenses=Elastic-2.0"
     extra_files:
       - configs/
-      - migrations/
 
   - id: contactshq-arm64
     goos: linux
     goarch: arm64
     image_templates:
       - "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}-arm64"
-      - "ghcr.io/gumeniukcom/contactshq:latest-arm64"
+      - "ghcr.io/gumeniukcom/contactshq:{{ if .Prerelease }}{{ .Tag }}{{ else }}latest{{ end }}-arm64"
     dockerfile: Dockerfile.goreleaser
     build_flag_templates:
       - "--platform=linux/arm64"
@@ -63,17 +63,18 @@ dockers:
       - "--label=org.opencontainers.image.licenses=Elastic-2.0"
     extra_files:
       - configs/
-      - migrations/
 
 docker_manifests:
   - name_template: "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}"
     image_templates:
       - "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}-amd64"
       - "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}-arm64"
-  - name_template: "ghcr.io/gumeniukcom/contactshq:latest"
+  # A prerelease must not move :latest onto an unstable build. On a prerelease this
+  # collapses to the version manifest above, which is simply written twice.
+  - name_template: "ghcr.io/gumeniukcom/contactshq:{{ if .Prerelease }}{{ .Tag }}{{ else }}latest{{ end }}"
     image_templates:
-      - "ghcr.io/gumeniukcom/contactshq:latest-amd64"
-      - "ghcr.io/gumeniukcom/contactshq:latest-arm64"
+      - "ghcr.io/gumeniukcom/contactshq:{{ if .Prerelease }}{{ .Tag }}{{ else }}latest{{ end }}-amd64"
+      - "ghcr.io/gumeniukcom/contactshq:{{ if .Prerelease }}{{ .Tag }}{{ else }}latest{{ end }}-arm64"
 
 changelog:
   sort: asc

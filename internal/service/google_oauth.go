@@ -204,7 +204,7 @@ func (s *GoogleOAuthService) RevokeToken(ctx context.Context, conn *domain.Provi
 		revokeURL := "https://oauth2.googleapis.com/revoke?token=" + conn.RefreshToken
 		resp, err := http.Post(revokeURL, "application/x-www-form-urlencoded", nil) //nolint:noctx
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}
 	return s.connRepo.Delete(ctx, conn.ID)

@@ -3,12 +3,13 @@ package repository_test
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
+	"path"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/gumeniukcom/contactshq/migrations"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
@@ -23,14 +24,14 @@ func migrateTo(ctx context.Context, db *bun.DB, lastVersion string) error {
 		return err
 	}
 
-	files, err := filepath.Glob("migrations/*.up.sql")
+	files, err := fs.Glob(migrations.FS, "*.up.sql")
 	if err != nil {
 		return err
 	}
 	sort.Strings(files)
 
 	for _, file := range files {
-		version := strings.TrimSuffix(filepath.Base(file), ".up.sql")
+		version := strings.TrimSuffix(path.Base(file), ".up.sql")
 
 		var applied int
 		if err := db.QueryRowContext(ctx,
@@ -38,7 +39,7 @@ func migrateTo(ctx context.Context, db *bun.DB, lastVersion string) error {
 			return err
 		}
 		if applied == 0 {
-			sqlBytes, err := os.ReadFile(file)
+			sqlBytes, err := fs.ReadFile(migrations.FS, file)
 			if err != nil {
 				return err
 			}

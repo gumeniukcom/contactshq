@@ -6,7 +6,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
@@ -32,6 +34,9 @@ var (
 	BuildTime = "unknown"
 )
 
+// shutdownTimeout bounds the drain of HTTP requests, scheduler and job queue.
+const shutdownTimeout = 30 * time.Second
+
 // webdavMethods are the RFC 4918 / RFC 6352 verbs the CardDAV server answers, none of
 // which are part of Fiber's default method set.
 var webdavMethods = []string{
@@ -53,13 +58,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to init logger: %v", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	db, err := repository.NewDB(cfg.Database)
 	if err != nil {
 		logger.Fatal("failed to connect to database", zap.Error(err))
 	}
 	defer db.Close()
+
+	logDatabaseLocation(logger, cfg.Database)
 
 	ctx := context.Background()
 	if err := repository.Migrate(ctx, db); err != nil {
@@ -111,7 +118,6 @@ func main() {
 	if err := gWorker.Start(ctx); err != nil {
 		logger.Fatal("failed to start worker", zap.Error(err))
 	}
-	defer gWorker.Stop(ctx)
 
 	// Scheduler
 	sched, err := worker.NewScheduler(gWorker, logger)
@@ -154,7 +160,6 @@ func main() {
 	}
 
 	sched.Start()
-	defer sched.Stop()
 
 	// Fiber app.
 	//
@@ -197,6 +202,7 @@ func main() {
 		GoogleOAuth:       googleOAuth,
 		AppPassword:       appPwService,
 		SyncConflict:      syncConflictService,
+		DB:                db,
 	})
 
 	// RFC 6764 — CardDAV service discovery
@@ -233,7 +239,44 @@ func main() {
 
 	<-quit
 	logger.Info("shutting down")
-	_ = app.Shutdown()
+
+	// Bound every stage of shutdown. Without a deadline an in-flight sync could hold the
+	// process open indefinitely, and the container runtime would eventually kill it in
+	// the middle of a write.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := app.ShutdownWithContext(shutdownCtx); err != nil {
+		logger.Error("http shutdown", zap.Error(err))
+	}
+
+	sched.Stop()
+
+	if err := gWorker.Stop(shutdownCtx); err != nil {
+		logger.Warn("worker did not drain in time", zap.Error(err))
+	}
+
+	logger.Info("stopped")
+}
+
+// logDatabaseLocation resolves a relative SQLite path so an operator can see which file
+// is actually in use. A relative DSN follows the working directory, and an ad-hoc
+// container run would otherwise write its database somewhere nobody thinks to look.
+func logDatabaseLocation(logger *zap.Logger, cfg config.DatabaseConfig) {
+	if cfg.Driver != "sqlite" {
+		logger.Info("database", zap.String("driver", cfg.Driver))
+		return
+	}
+
+	abs, err := filepath.Abs(cfg.DSN)
+	if err != nil {
+		abs = cfg.DSN
+	}
+	fields := []zap.Field{zap.String("driver", "sqlite"), zap.String("path", abs)}
+	if !filepath.IsAbs(cfg.DSN) {
+		fields = append(fields, zap.String("note", "relative path — resolved against the working directory"))
+	}
+	logger.Info("database", fields...)
 }
 
 func errorHandler(c *fiber.Ctx, err error) error {

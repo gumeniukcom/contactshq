@@ -26,15 +26,27 @@ RUN CGO_ENABLED=0 go build \
 # Stage 3: Runtime
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates sqlite-libs
+# No sqlite-libs: the binary is CGO-free and links modernc.org/sqlite, a pure-Go driver.
+# wget comes from busybox and is what the health check uses.
+RUN apk add --no-cache ca-certificates
+
+# Run unprivileged. The backups directory has to belong to that user.
+RUN adduser -D -u 10001 contactshq
 
 WORKDIR /app
 COPY --from=builder /app/contactshq .
 COPY --from=builder /app/configs ./configs
-COPY --from=builder /app/migrations ./migrations
+# Migrations are embedded in the binary; there is nothing to copy.
 
-RUN mkdir -p /app/backups
+RUN mkdir -p /app/backups && chown -R contactshq:contactshq /app
+
+USER contactshq
 
 EXPOSE 8080
+
+# /health probes the database, so a container that cannot reach it is reported unhealthy
+# rather than kept in service.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://127.0.0.1:8080/health || exit 1
 
 CMD ["./contactshq"]

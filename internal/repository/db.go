@@ -3,19 +3,25 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
+	"path"
 	"sort"
 	"strings"
 
 	"github.com/gumeniukcom/contactshq/internal/config"
+	"github.com/gumeniukcom/contactshq/migrations"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
+
+// ErrNoMigrations guards against a build that somehow carries no schema: applying
+// nothing used to look exactly like being up to date.
+var ErrNoMigrations = errors.New("no migrations found")
 
 func NewDB(cfg config.DatabaseConfig) (*bun.DB, error) {
 	var sqldb *sql.DB
@@ -46,29 +52,38 @@ func NewDB(cfg config.DatabaseConfig) (*bun.DB, error) {
 	return db, nil
 }
 
+// Migrate applies every embedded migration that is not yet recorded.
 func Migrate(ctx context.Context, db *bun.DB) error {
-	// Ensure schema_migrations table exists
-	_, err := db.ExecContext(ctx, `
+	return MigrateFS(ctx, db, migrations.FS)
+}
+
+// MigrateFS applies the migrations found in fsys, in filename order. Each file runs in
+// its own transaction together with the row that records it, so a failure part-way
+// through a multi-statement migration leaves nothing behind: without that, a second run
+// re-applies the statements that already succeeded and dies on "duplicate column",
+// wedging the database for good.
+func MigrateFS(ctx context.Context, db *bun.DB, fsys fs.FS) error {
+	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version    TEXT PRIMARY KEY,
 			applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
-	`)
-	if err != nil {
+	`); err != nil {
 		return fmt.Errorf("create schema_migrations table: %w", err)
 	}
 
-	// Find all migration files
-	files, err := filepath.Glob("migrations/*.up.sql")
+	files, err := fs.Glob(fsys, "*.up.sql")
 	if err != nil {
 		return fmt.Errorf("glob migrations: %w", err)
+	}
+	if len(files) == 0 {
+		return ErrNoMigrations
 	}
 	sort.Strings(files)
 
 	for _, file := range files {
-		version := strings.TrimSuffix(filepath.Base(file), ".up.sql")
+		version := strings.TrimSuffix(path.Base(file), ".up.sql")
 
-		// Check if already applied
 		var count int
 		row := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", version)
 		if err := row.Scan(&count); err != nil {
@@ -78,21 +93,27 @@ func Migrate(ctx context.Context, db *bun.DB) error {
 			continue
 		}
 
-		// Read and execute migration
-		migrationSQL, err := os.ReadFile(file)
+		migrationSQL, err := fs.ReadFile(fsys, file)
 		if err != nil {
 			return fmt.Errorf("read migration file %s: %w", file, err)
 		}
 
-		if _, err = db.ExecContext(ctx, string(migrationSQL)); err != nil {
-			return fmt.Errorf("execute migration %s: %w", version, err)
-		}
-
-		// Record as applied
-		if _, err = db.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
-			return fmt.Errorf("record migration %s: %w", version, err)
+		if err := applyMigration(ctx, db, version, string(migrationSQL)); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func applyMigration(ctx context.Context, db *bun.DB, version, migrationSQL string) error {
+	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, migrationSQL); err != nil {
+			return fmt.Errorf("execute migration %s: %w", version, err)
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
+			return fmt.Errorf("record migration %s: %w", version, err)
+		}
+		return nil
+	})
 }
