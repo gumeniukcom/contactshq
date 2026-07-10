@@ -40,8 +40,15 @@ const router = createRouter({
           component: () => import('@/views/contacts/ContactMergeView.vue'),
         },
         {
+          // Clicking a contact opens a read-only card: the common intent is to look up a
+          // phone number, not to edit twenty inputs.
           path: 'contacts/:id',
           name: 'contact-detail',
+          component: () => import('@/views/contacts/ContactViewView.vue'),
+        },
+        {
+          path: 'contacts/:id/edit',
+          name: 'contact-edit',
           component: () => import('@/views/contacts/ContactDetailView.vue'),
         },
         {
@@ -132,6 +139,12 @@ const router = createRouter({
           component: () => import('@/views/admin/AdminCreateUserView.vue'),
         },
       ],
+    },
+    {
+      // Without a catch-all, an unknown URL rendered an empty layout with no way back.
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/views/NotFoundView.vue'),
     },
   ],
 })

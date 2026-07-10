@@ -166,6 +166,41 @@ export interface ContactFormData {
 
 // ── API input types ─────────────────────────────────────────────────────────
 
+/**
+ * The structured contact the server merges into the stored vCard. Properties the form
+ * does not model (photos, X- extensions) are preserved server-side.
+ */
+export interface ContactFieldsPayload {
+  first_name: string
+  last_name: string
+  middle_name: string
+  name_prefix: string
+  name_suffix: string
+  nickname: string
+  org: string
+  department: string
+  title: string
+  role: string
+  note: string
+  gender: string
+  tz: string
+  bday: string
+  anniversary: string
+  emails: { value: string; type: string }[]
+  phones: { value: string; type: string }[]
+  urls: { value: string; type: string }[]
+  ims: { value: string; type: string }[]
+  addresses: {
+    type: string
+    street: string
+    city: string
+    region: string
+    postal_code: string
+    country: string
+  }[]
+  categories: string[]
+}
+
 export interface CreateContactInput {
   first_name: string
   last_name: string
@@ -175,6 +210,7 @@ export interface CreateContactInput {
   title: string
   note: string
   vcard_data?: string
+  fields?: ContactFieldsPayload
 }
 
 export interface TokenPair {

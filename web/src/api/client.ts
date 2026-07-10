@@ -20,6 +20,12 @@ let failedQueue: Array<{
   reject: (reason: unknown) => void
 }> = []
 
+function endSession() {
+  localStorage.removeItem('access_token')
+  localStorage.removeItem('refresh_token')
+  window.location.href = '/app/login'
+}
+
 function processQueue(error: unknown) {
   failedQueue.forEach((p) => {
     if (error) {
@@ -43,16 +49,16 @@ client.interceptors.response.use(
         }).then(() => client(originalRequest))
       }
 
-      originalRequest._retry = true
-      isRefreshing = true
-
       const refreshToken = localStorage.getItem('refresh_token')
       if (!refreshToken) {
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-        window.location.href = '/app/login'
+        // Do not raise the isRefreshing flag here: nothing is going to lower it, and
+        // every later 401 would queue behind a refresh that never runs.
+        endSession()
         return Promise.reject(error)
       }
+
+      originalRequest._retry = true
+      isRefreshing = true
 
       try {
         const { data } = await axios.post<TokenPair>('/api/v1/auth/refresh', {
@@ -64,9 +70,7 @@ client.interceptors.response.use(
         return client(originalRequest)
       } catch (refreshError) {
         processQueue(refreshError)
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-        window.location.href = '/app/login'
+        endSession()
         return Promise.reject(refreshError)
       } finally {
         isRefreshing = false
@@ -76,5 +80,16 @@ client.interceptors.response.use(
     return Promise.reject(error)
   },
 )
+
+/**
+ * Pull a human-readable message out of an API failure. The server answers errors as
+ * `{"error": "..."}`; anything else falls back to the transport error.
+ */
+export function getApiError(e: unknown, fallback = 'Something went wrong'): string {
+  const response = (e as { response?: { data?: { error?: string } } })?.response
+  if (response?.data?.error) return response.data.error
+  const message = (e as Error)?.message
+  return message || fallback
+}
 
 export default client

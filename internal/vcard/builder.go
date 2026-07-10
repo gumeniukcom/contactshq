@@ -9,6 +9,21 @@ import (
 
 // BuildVCard generates a RFC 6350 vCard 4.0 string from a ParsedContact.
 func BuildVCard(p *ParsedContact) (string, error) {
+	return encodeCard(buildCard(p))
+}
+
+func encodeCard(card gvcard.Card) (string, error) {
+	var sb strings.Builder
+	if err := gvcard.NewEncoder(&sb).Encode(card); err != nil {
+		return "", fmt.Errorf("encode vcard: %w", err)
+	}
+	return sb.String(), nil
+}
+
+// buildCard renders the properties ParsedContact models. Anything outside that set —
+// PHOTO data, X- extensions, KEY, RELATED — simply has nowhere to live here, which is
+// why MergeIntoVCard exists.
+func buildCard(p *ParsedContact) gvcard.Card {
 	card := make(gvcard.Card)
 
 	// VERSION — always 4.0
@@ -196,11 +211,7 @@ func BuildVCard(p *ParsedContact) (string, error) {
 		}
 	}
 
-	var sb strings.Builder
-	if err := gvcard.NewEncoder(&sb).Encode(card); err != nil {
-		return "", fmt.Errorf("encode vcard: %w", err)
-	}
-	return sb.String(), nil
+	return card
 }
 
 // NewFromSimple creates a ParsedContact from minimal flat fields.

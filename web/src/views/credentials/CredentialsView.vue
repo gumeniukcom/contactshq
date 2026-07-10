@@ -15,7 +15,9 @@
 
       <table v-else class="w-full text-sm">
         <thead>
-          <tr class="border-b border-border text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <tr
+            class="border-b border-border text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+          >
             <th class="pb-2 pr-4">Name</th>
             <th class="pb-2 pr-4">Type</th>
             <th class="pb-2 pr-4">Server URL</th>
@@ -31,21 +33,44 @@
             <td class="py-3 pr-4 text-muted-foreground truncate max-w-xs">{{ cred.endpoint }}</td>
             <td class="py-3 text-right space-x-2 whitespace-nowrap">
               <AppButton size="sm" variant="secondary" @click="openEdit(cred)">Edit</AppButton>
-              <AppButton size="sm" variant="danger" :loading="deletingId === cred.id" @click="handleDelete(cred)">Delete</AppButton>
+              <AppButton
+                size="sm"
+                variant="danger"
+                :loading="deletingId === cred.id"
+                @click="deleteTarget = cred"
+                >Delete</AppButton
+              >
             </td>
           </tr>
         </tbody>
       </table>
     </AppCard>
 
+    <ConfirmDialog
+      :show="!!deleteTarget"
+      title="Delete Credential"
+      :message="`Delete credential &quot;${deleteTarget?.name}&quot;? Pipelines using it will stop working.`"
+      confirm-text="Delete"
+      :loading="!!deletingId"
+      @confirm="handleDelete"
+      @cancel="deleteTarget = null"
+    />
+
     <!-- Add / Edit modal -->
     <div v-if="modal.open" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-md">
         <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border">
-          <h2 class="text-base font-semibold text-foreground">{{ modal.id ? 'Edit Credential' : 'Add Credential' }}</h2>
+          <h2 class="text-base font-semibold text-foreground">
+            {{ modal.id ? 'Edit Credential' : 'Add Credential' }}
+          </h2>
           <button class="text-muted-foreground hover:text-foreground" @click="closeModal">
             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -116,6 +141,11 @@ import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import AppInput from '@/components/ui/AppInput.vue'
+import { useToast } from '@/composables/useToast'
+import { getApiError } from '@/api/client'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+
+const toast = useToast()
 
 // ── List ───────────────────────────────────────────────────────────────────
 const credentials = ref<Credential[]>([])
@@ -136,12 +166,19 @@ onMounted(loadCredentials)
 // ── Delete ─────────────────────────────────────────────────────────────────
 const deletingId = ref<string | null>(null)
 
-async function handleDelete(cred: Credential) {
-  if (!confirm(`Delete credential "${cred.name}"?`)) return
+const deleteTarget = ref<Credential | null>(null)
+
+async function handleDelete() {
+  const cred = deleteTarget.value
+  if (!cred) return
   deletingId.value = cred.id
   try {
     await deleteCredential(cred.id)
     await loadCredentials()
+    toast.success(`Credential "${cred.name}" deleted`)
+    deleteTarget.value = null
+  } catch (err: unknown) {
+    toast.error(getApiError(err, 'Failed to delete credential'))
   } finally {
     deletingId.value = null
   }
@@ -158,7 +195,14 @@ interface ModalForm {
 }
 
 function emptyForm(): ModalForm {
-  return { name: '', provider_type: 'carddav', endpoint: '', username: '', password: '', skip_tls_verify: false }
+  return {
+    name: '',
+    provider_type: 'carddav',
+    endpoint: '',
+    username: '',
+    password: '',
+    skip_tls_verify: false,
+  }
 }
 
 const modal = reactive({

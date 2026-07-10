@@ -55,7 +55,7 @@
 
       <AppTable :columns="columns" :rows="backups" :loading="loading" empty-text="No backups yet">
         <template #body="{ rows }">
-          <tr v-for="b in (rows as BackupInfo[])" :key="b.id" class="hover:bg-muted/50">
+          <tr v-for="b in rows as BackupInfo[]" :key="b.id" class="hover:bg-muted/50">
             <td class="px-4 py-4 text-sm font-medium text-foreground">{{ b.filename }}</td>
             <td class="px-4 py-4 text-sm text-muted-foreground">{{ formatSize(b.size) }}</td>
             <td class="px-4 py-4 text-sm text-muted-foreground">{{ formatDateTime(b.created_at) }}</td>
@@ -80,17 +80,31 @@
         </p>
 
         <div class="space-y-3 mb-5">
-          <label class="flex items-start gap-3 cursor-pointer p-3 rounded-lg border transition-colors"
-            :class="restoreMode === 'merge' ? 'border-accent bg-accent/10' : 'border-border hover:border-muted-foreground'">
+          <label
+            class="flex items-start gap-3 cursor-pointer p-3 rounded-lg border transition-colors"
+            :class="
+              restoreMode === 'merge'
+                ? 'border-accent bg-accent/10'
+                : 'border-border hover:border-muted-foreground'
+            "
+          >
             <input type="radio" v-model="restoreMode" value="merge" class="mt-0.5 text-accent" />
             <div>
               <p class="text-sm font-medium text-foreground">Merge</p>
-              <p class="text-xs text-muted-foreground">Add contacts from backup that don't exist yet (safe, non-destructive)</p>
+              <p class="text-xs text-muted-foreground">
+                Add contacts from backup that don't exist yet (safe, non-destructive)
+              </p>
             </div>
           </label>
 
-          <label class="flex items-start gap-3 cursor-pointer p-3 rounded-lg border transition-colors"
-            :class="restoreMode === 'replace' ? 'border-destructive bg-red-50 dark:bg-red-500/10' : 'border-border hover:border-muted-foreground'">
+          <label
+            class="flex items-start gap-3 cursor-pointer p-3 rounded-lg border transition-colors"
+            :class="
+              restoreMode === 'replace'
+                ? 'border-destructive bg-red-50 dark:bg-red-500/10'
+                : 'border-border hover:border-muted-foreground'
+            "
+          >
             <input type="radio" v-model="restoreMode" value="replace" class="mt-0.5 text-destructive" />
             <div>
               <p class="text-sm font-medium text-foreground">Replace</p>
@@ -101,20 +115,32 @@
           </label>
         </div>
 
-        <p v-if="restoreResult" class="text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 rounded p-2 mb-3">
-          Done: {{ restoreResult.imported }} imported, {{ restoreResult.skipped }} skipped, {{ restoreResult.errors }} errors.
+        <p
+          v-if="restoreResult"
+          class="text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-500/10 rounded p-2 mb-3"
+        >
+          Done: {{ restoreResult.imported }} imported, {{ restoreResult.skipped }} skipped,
+          {{ restoreResult.errors }} errors.
         </p>
         <p v-if="restoreError" class="text-sm text-destructive mb-3">{{ restoreError }}</p>
 
         <div class="flex justify-end gap-3">
-          <AppButton
-            variant="secondary"
-            @click="restoreTarget = null; restoreResult = null; restoreError = ''"
-          >
-            Cancel
-          </AppButton>
+          <div v-if="restoreMode === 'replace'" class="w-full mb-3">
+            <label for="replace-confirm" class="block text-sm text-foreground mb-1">
+              This deletes every current contact. Type <strong>replace</strong> to confirm.
+            </label>
+            <input
+              id="replace-confirm"
+              v-model="replaceConfirmText"
+              type="text"
+              autocomplete="off"
+              class="block w-full rounded-md border border-input bg-background text-foreground px-3 py-2 text-sm"
+            />
+          </div>
+          <AppButton variant="secondary" @click="closeRestore"> Cancel </AppButton>
           <AppButton
             :loading="restoring"
+            :disabled="!canRestore"
             :variant="restoreMode === 'replace' ? 'danger' : 'primary'"
             @click="handleRestore"
           >
@@ -129,7 +155,8 @@
       <div class="bg-card border border-border rounded-lg shadow-xl p-6 w-full max-w-sm mx-4">
         <h3 class="text-lg font-semibold text-foreground mb-2">Delete Backup</h3>
         <p class="text-sm text-muted-foreground mb-4">
-          Delete <span class="font-medium">{{ deleteTarget.filename }}</span>? This cannot be undone.
+          Delete <span class="font-medium">{{ deleteTarget.filename }}</span
+          >? This cannot be undone.
         </p>
         <div class="flex justify-end gap-3">
           <AppButton variant="secondary" @click="deleteTarget = null">Cancel</AppButton>
@@ -141,10 +168,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
-  createBackup, listBackups, downloadBackup, deleteBackup,
-  restoreBackup, getBackupSettings, saveBackupSettings,
+  createBackup,
+  listBackups,
+  downloadBackup,
+  deleteBackup,
+  restoreBackup,
+  getBackupSettings,
+  saveBackupSettings,
 } from '@/api/backup'
 import { formatDateTime } from '@/utils/date'
 import type { BackupInfo, BackupSettings, RestoreResult } from '@/types'
@@ -153,6 +185,10 @@ import AppCard from '@/components/ui/AppCard.vue'
 import AppTable from '@/components/ui/AppTable.vue'
 import ScheduleInput from '@/components/ui/ScheduleInput.vue'
 import { BACKUP_PRESETS } from '@/utils/cron'
+import { useToast } from '@/composables/useToast'
+import { getApiError } from '@/api/client'
+
+const toast = useToast()
 
 // ── Backups list ───────────────────────────────────────────────────────────
 const backups = ref<BackupInfo[]>([])
@@ -220,6 +256,13 @@ async function handleDelete() {
 // ── Restore ────────────────────────────────────────────────────────────────
 const restoreTarget = ref<BackupInfo | null>(null)
 const restoreMode = ref<'merge' | 'replace'>('merge')
+
+// Replacing wipes the address book, the same blast radius as Delete All Contacts, which
+// already asks the user to type the word.
+const replaceConfirmText = ref('')
+const canRestore = computed(
+  () => restoreMode.value !== 'replace' || replaceConfirmText.value.trim().toLowerCase() === 'replace',
+)
 const restoring = ref(false)
 const restoreResult = ref<RestoreResult | null>(null)
 const restoreError = ref('')
@@ -227,6 +270,13 @@ const restoreError = ref('')
 function openRestore(b: BackupInfo) {
   restoreTarget.value = b
   restoreMode.value = 'merge'
+  replaceConfirmText.value = ''
+  restoreResult.value = null
+  restoreError.value = ''
+}
+
+function closeRestore() {
+  restoreTarget.value = null
   restoreResult.value = null
   restoreError.value = ''
 }
@@ -240,7 +290,8 @@ async function handleRestore() {
     const { data } = await restoreBackup(restoreTarget.value.id, restoreMode.value)
     restoreResult.value = data
   } catch (e: unknown) {
-    restoreError.value = (e as Error)?.message ?? 'Restore failed'
+    restoreError.value = getApiError(e, 'Restore failed')
+    toast.error(restoreError.value)
   } finally {
     restoring.value = false
   }
@@ -271,7 +322,9 @@ async function handleSaveSettings() {
   try {
     await saveBackupSettings(settings.value)
     settingsSaved.value = true
-    setTimeout(() => { settingsSaved.value = false }, 3000)
+    setTimeout(() => {
+      settingsSaved.value = false
+    }, 3000)
   } finally {
     savingSettings.value = false
   }
@@ -288,5 +341,4 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / 1024 / 1024).toFixed(1) + ' MB'
 }
-
 </script>

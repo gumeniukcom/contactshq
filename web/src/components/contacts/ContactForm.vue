@@ -1,24 +1,23 @@
 <template>
   <form class="space-y-8" @submit.prevent="$emit('submit')">
-
     <!-- ── Name ─────────────────────────────────────────────── -->
     <section>
       <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Name</h3>
-      <div class="grid grid-cols-12 gap-3 mb-3">
-        <div class="col-span-2">
+      <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 mb-3">
+        <div class="sm:col-span-2">
           <AppInput v-model="form.name_prefix" label="Prefix" placeholder="Dr." id="name_prefix" />
         </div>
-        <div class="col-span-4">
+        <div class="sm:col-span-4">
           <AppInput v-model="form.first_name" label="First Name" placeholder="Jane" id="first_name" />
         </div>
-        <div class="col-span-2">
+        <div class="sm:col-span-2">
           <AppInput v-model="form.middle_name" label="Middle" id="middle_name" />
         </div>
-        <div class="col-span-4">
+        <div class="sm:col-span-4">
           <AppInput v-model="form.last_name" label="Last Name" placeholder="Doe" id="last_name" />
         </div>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <AppInput v-model="form.name_suffix" label="Suffix" placeholder="Jr., PhD" id="name_suffix" />
         <AppInput v-model="form.nickname" label="Nickname" id="nickname" />
       </div>
@@ -50,11 +49,11 @@
     <!-- ── Organization ──────────────────────────────────────── -->
     <section>
       <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Organization</h3>
-      <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <AppInput v-model="form.org" label="Company" placeholder="Acme Inc." id="org" />
         <AppInput v-model="form.department" label="Department" placeholder="Engineering" id="department" />
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <AppInput v-model="form.title" label="Job Title" placeholder="Software Engineer" id="title" />
         <AppInput v-model="form.role" label="Role" id="role" />
       </div>
@@ -63,11 +62,11 @@
     <!-- ── Personal ──────────────────────────────────────────── -->
     <section>
       <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Personal</h3>
-      <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <AppInput v-model="form.bday" label="Birthday" type="date" id="bday" />
         <AppInput v-model="form.anniversary" label="Anniversary" type="date" id="anniversary" />
       </div>
-      <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <div>
           <label for="gender" class="block text-sm font-medium text-foreground mb-1">Gender</label>
           <select
@@ -126,7 +125,7 @@
           </svg>
         </button>
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-sm font-medium text-foreground mb-1">Type</label>
             <select
@@ -141,7 +140,7 @@
           </div>
           <AppInput v-model="addr.street" label="Street" :id="`addr_street_${i}`" />
         </div>
-        <div class="grid grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <AppInput v-model="addr.city" label="City" :id="`addr_city_${i}`" />
           <AppInput v-model="addr.region" label="State / Region" :id="`addr_region_${i}`" />
           <AppInput v-model="addr.postal_code" label="Postal Code" :id="`addr_zip_${i}`" />
@@ -152,7 +151,9 @@
 
     <!-- ── Web & Messaging ───────────────────────────────────── -->
     <section>
-      <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Web & Messaging</h3>
+      <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+        Web & Messaging
+      </h3>
       <div class="space-y-4">
         <MultiFieldRow
           v-model="form.urls"
@@ -195,7 +196,6 @@
       <AppButton variant="secondary" @click="$emit('cancel')">Cancel</AppButton>
       <AppButton type="submit" :loading="loading">{{ submitLabel }}</AppButton>
     </div>
-
   </form>
 </template>
 
@@ -204,8 +204,8 @@ import { reactive, watchEffect } from 'vue'
 import AppInput from '@/components/ui/AppInput.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import MultiFieldRow from '@/components/contacts/MultiFieldRow.vue'
-import type { Contact, ContactFormData } from '@/types'
-import { buildVCard, formFromContact, emptyForm } from '@/utils/vcard'
+import type { Contact, ContactFormData, ContactFieldsPayload } from '@/types'
+import { toFieldsPayload, formFromContact, emptyForm } from '@/utils/contact-form'
 
 const props = withDefaults(
   defineProps<{
@@ -247,10 +247,10 @@ function updateCategories(raw: string) {
     .filter(Boolean)
 }
 
-/** Returns the payload to send to the API (full vCard as vcard_data). */
-function getVCardPayload(): { vcard_data: string } {
-  return { vcard_data: buildVCard(form) }
+/** Returns the structured payload the API merges into the stored vCard. */
+function getFieldsPayload(): { fields: ContactFieldsPayload } {
+  return { fields: toFieldsPayload(form) }
 }
 
-defineExpose({ form, getVCardPayload })
+defineExpose({ form, getFieldsPayload })
 </script>

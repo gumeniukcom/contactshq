@@ -19,14 +19,19 @@
 
       <div class="mt-5 flex items-center gap-3">
         <AppButton :loading="savingDedupSettings" @click="handleSaveDedupSettings">Save Settings</AppButton>
-        <span v-if="dedupSettingsSaved" class="text-sm text-green-600 dark:text-green-400">Settings saved</span>
+        <span v-if="dedupSettingsSaved" class="text-sm text-green-600 dark:text-green-400"
+          >Settings saved</span
+        >
       </div>
     </AppCard>
 
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold text-foreground">
         Potential Duplicates
-        <span v-if="total > 0" class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 dark:bg-orange-500/20 text-orange-800 dark:text-orange-300">
+        <span
+          v-if="total > 0"
+          class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 dark:bg-orange-500/20 text-orange-800 dark:text-orange-300"
+        >
           {{ total }}
         </span>
       </h1>
@@ -43,15 +48,27 @@
       </div>
     </div>
 
-    <p v-if="detectMsg" class="mb-4 text-sm text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-500/20 border border-green-200 dark:border-green-500/30 rounded px-3 py-2">
+    <p
+      v-if="detectMsg"
+      class="mb-4 text-sm text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-500/20 border border-green-200 dark:border-green-500/30 rounded px-3 py-2"
+    >
       {{ detectMsg }}
     </p>
 
     <div v-if="loading" class="py-8 text-center text-muted-foreground">Loading…</div>
     <div v-else-if="duplicates.length === 0" class="py-12 text-center text-muted-foreground">
-      <svg class="mx-auto h-12 w-12 text-muted-foreground/60 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <svg
+        class="mx-auto h-12 w-12 text-muted-foreground/60 mb-3"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
       </svg>
       <p>No duplicate pairs found.</p>
     </div>
@@ -65,7 +82,9 @@
         <!-- Header row -->
         <div class="px-4 py-3 bg-muted/50 border-b border-border flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300">
+            <span
+              class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300"
+            >
               {{ Math.round(dup.score * 100) }}% match
             </span>
             <span class="text-xs text-muted-foreground">{{ parsedReasons(dup).join(', ') }}</span>
@@ -75,7 +94,9 @@
               v-if="dup.status === 'pending'"
               class="text-xs text-muted-foreground hover:text-foreground"
               @click="dismiss(dup.id)"
-            >Dismiss</button>
+            >
+              Dismiss
+            </button>
           </div>
         </div>
 
@@ -94,11 +115,19 @@
         </div>
 
         <!-- Merge controls (only for pending) -->
-        <div v-if="dup.status === 'pending' && dup.contact_a && dup.contact_b" class="px-4 py-3 border-t border-border bg-muted/50 flex gap-3">
-          <AppButton size="sm" :loading="mergingId === dup.id + '_a'" @click="quickMerge(dup, 'a')">
+        <div
+          v-if="dup.status === 'pending' && dup.contact_a && dup.contact_b"
+          class="px-4 py-3 border-t border-border bg-muted/50 flex gap-3"
+        >
+          <AppButton size="sm" :loading="mergingId === dup.id + '_a'" @click="askMerge(dup, 'a')">
             Keep A
           </AppButton>
-          <AppButton size="sm" variant="secondary" :loading="mergingId === dup.id + '_b'" @click="quickMerge(dup, 'b')">
+          <AppButton
+            size="sm"
+            variant="secondary"
+            :loading="mergingId === dup.id + '_b'"
+            @click="askMerge(dup, 'b')"
+          >
             Keep B
           </AppButton>
           <RouterLink
@@ -114,34 +143,68 @@
     <!-- Pagination -->
     <div v-if="total > limit" class="mt-6 flex justify-center gap-2">
       <AppButton size="sm" variant="secondary" :disabled="offset === 0" @click="prevPage">Previous</AppButton>
-      <span class="text-sm text-muted-foreground self-center">{{ page + 1 }} / {{ Math.ceil(total / limit) }}</span>
-      <AppButton size="sm" variant="secondary" :disabled="offset + limit >= total" @click="nextPage">Next</AppButton>
+      <span class="text-sm text-muted-foreground self-center"
+        >{{ page + 1 }} / {{ Math.ceil(total / limit) }}</span
+      >
+      <AppButton size="sm" variant="secondary" :disabled="offset + limit >= total" @click="nextPage"
+        >Next</AppButton
+      >
     </div>
+
+    <ConfirmDialog
+      :show="!!mergeTarget"
+      title="Merge Contacts"
+      :message="mergeMessage"
+      confirm-text="Merge"
+      :loading="!!mergingId"
+      @confirm="quickMerge"
+      @cancel="mergeTarget = null"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, defineComponent, h } from 'vue'
+import { ref, computed, watch, onMounted, defineComponent, h } from 'vue'
 import { RouterLink } from 'vue-router'
-import { listDuplicates, dismissDuplicate, detectDuplicates, mergeContacts, getDedupSettings, saveDedupSettings } from '@/api/contacts'
+import {
+  listDuplicates,
+  dismissDuplicate,
+  detectDuplicates,
+  mergeContacts,
+  getDedupSettings,
+  saveDedupSettings,
+} from '@/api/contacts'
 import type { PotentialDuplicate, Contact, DedupSettings } from '@/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import ScheduleInput from '@/components/ui/ScheduleInput.vue'
 import { DEDUP_PRESETS } from '@/utils/cron'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { useToast } from '@/composables/useToast'
+import { getApiError } from '@/api/client'
+
+const toast = useToast()
 
 // Inline ContactSummary component to avoid extra file
 const ContactSummary = defineComponent({
   props: { contact: { type: Object as () => Contact, required: true } },
   setup(props) {
-    return () => h('div', { class: 'space-y-1 text-sm' }, [
-      h('p', { class: 'font-medium text-foreground' },
-        [props.contact.first_name, props.contact.last_name].filter(Boolean).join(' ') || '(no name)'),
-      props.contact.email ? h('p', { class: 'text-muted-foreground' }, props.contact.email) : null,
-      props.contact.phone ? h('p', { class: 'text-muted-foreground' }, props.contact.phone) : null,
-      props.contact.org ? h('p', { class: 'text-muted-foreground text-xs' }, props.contact.org) : null,
-    ].filter(Boolean))
-  }
+    return () =>
+      h(
+        'div',
+        { class: 'space-y-1 text-sm' },
+        [
+          h(
+            'p',
+            { class: 'font-medium text-foreground' },
+            [props.contact.first_name, props.contact.last_name].filter(Boolean).join(' ') || '(no name)',
+          ),
+          props.contact.email ? h('p', { class: 'text-muted-foreground' }, props.contact.email) : null,
+          props.contact.phone ? h('p', { class: 'text-muted-foreground' }, props.contact.phone) : null,
+          props.contact.org ? h('p', { class: 'text-muted-foreground text-xs' }, props.contact.org) : null,
+        ].filter(Boolean),
+      )
+  },
 })
 
 const loading = ref(false)
@@ -158,7 +221,11 @@ const mergingId = ref('')
 async function fetchDuplicates() {
   loading.value = true
   try {
-    const { data } = await listDuplicates({ status: statusFilter.value || undefined, limit, offset: offset.value })
+    const { data } = await listDuplicates({
+      status: statusFilter.value || undefined,
+      limit,
+      offset: offset.value,
+    })
     duplicates.value = data.duplicates
     total.value = data.total
   } finally {
@@ -166,10 +233,22 @@ async function fetchDuplicates() {
   }
 }
 
-watch(statusFilter, () => { offset.value = 0; page.value = 0; fetchDuplicates() })
+watch(statusFilter, () => {
+  offset.value = 0
+  page.value = 0
+  fetchDuplicates()
+})
 
-function prevPage() { offset.value = Math.max(0, offset.value - limit); page.value--; fetchDuplicates() }
-function nextPage() { offset.value += limit; page.value++; fetchDuplicates() }
+function prevPage() {
+  offset.value = Math.max(0, offset.value - limit)
+  page.value--
+  fetchDuplicates()
+}
+function nextPage() {
+  offset.value += limit
+  page.value++
+  fetchDuplicates()
+}
 
 async function dismiss(id: string) {
   await dismissDuplicate(id)
@@ -189,20 +268,52 @@ async function runDetect() {
 }
 
 // Quick merge: pick one contact as winner, other as loser, no field-level choices
-async function quickMerge(dup: PotentialDuplicate, keep: 'a' | 'b') {
+// Merging deletes one of the two contacts, so it gets the same confirmation as any
+// other destructive action. It used to happen on a single click.
+const mergeTarget = ref<{ dup: PotentialDuplicate; keep: 'a' | 'b' } | null>(null)
+
+function askMerge(dup: PotentialDuplicate, keep: 'a' | 'b') {
+  mergeTarget.value = { dup, keep }
+}
+
+function contactName(c: { first_name?: string; last_name?: string } | undefined): string {
+  if (!c) return 'this contact'
+  return [c.first_name, c.last_name].filter(Boolean).join(' ') || 'this contact'
+}
+
+const mergeMessage = computed(() => {
+  const t = mergeTarget.value
+  if (!t) return ''
+  const winner = t.keep === 'a' ? t.dup.contact_a : t.dup.contact_b
+  const loser = t.keep === 'a' ? t.dup.contact_b : t.dup.contact_a
+  return `Merge "${contactName(loser)}" into "${contactName(winner)}"? The other record will be deleted.`
+})
+
+async function quickMerge() {
+  const t = mergeTarget.value
+  if (!t) return
+  const { dup, keep } = t
   const winnerId = keep === 'a' ? dup.contact_a_id : dup.contact_b_id
-  const loserId  = keep === 'a' ? dup.contact_b_id : dup.contact_a_id
+  const loserId = keep === 'a' ? dup.contact_b_id : dup.contact_a_id
   mergingId.value = dup.id + '_' + keep
   try {
     await mergeContacts({ winner_id: winnerId, loser_id: loserId, resolution: {} })
+    toast.success('Contacts merged')
+    mergeTarget.value = null
     fetchDuplicates()
+  } catch (err: unknown) {
+    toast.error(getApiError(err, 'Failed to merge contacts'))
   } finally {
     mergingId.value = ''
   }
 }
 
 function parsedReasons(dup: PotentialDuplicate): string[] {
-  try { return JSON.parse(dup.match_reasons) as string[] } catch { return [] }
+  try {
+    return JSON.parse(dup.match_reasons) as string[]
+  } catch {
+    return []
+  }
 }
 
 // ── Dedup Schedule Settings ────────────────────────────────────────────────
@@ -225,7 +336,9 @@ async function handleSaveDedupSettings() {
   try {
     await saveDedupSettings(dedupSettings.value)
     dedupSettingsSaved.value = true
-    setTimeout(() => { dedupSettingsSaved.value = false }, 3000)
+    setTimeout(() => {
+      dedupSettingsSaved.value = false
+    }, 3000)
   } finally {
     savingDedupSettings.value = false
   }

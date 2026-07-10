@@ -1,10 +1,24 @@
 <template>
-  <aside class="w-64 bg-sidebar dark:backdrop-blur-xl border-r border-sidebar-border flex flex-col">
+  <!-- Below lg the sidebar slides over the content instead of squeezing it into ~120px. -->
+  <div
+    v-if="open"
+    class="fixed inset-0 z-30 bg-black/50 lg:hidden"
+    aria-hidden="true"
+    @click="emit('close')"
+  />
+  <aside
+    class="w-64 shrink-0 bg-sidebar dark:backdrop-blur-xl border-r border-sidebar-border flex flex-col fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 lg:static lg:translate-x-0"
+    :class="open ? 'translate-x-0' : '-translate-x-full'"
+  >
     <div class="h-16 flex items-center px-6 border-b border-sidebar-border">
       <RouterLink to="/" class="flex items-center gap-2">
         <svg class="h-7 w-7 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+          />
         </svg>
         <span class="text-lg font-bold text-foreground">ContactsHQ</span>
       </RouterLink>
@@ -15,8 +29,10 @@
       <NavLink to="/contacts" icon="users">Contacts</NavLink>
       <NavLink to="/contacts/duplicates" icon="duplicate">
         Duplicates
-        <span v-if="pendingDuplicates > 0"
-          class="ml-auto inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full text-xs font-bold bg-orange-500 text-white">
+        <span
+          v-if="pendingDuplicates > 0"
+          class="ml-auto inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full text-xs font-bold bg-orange-500 text-white"
+        >
           {{ pendingDuplicates }}
         </span>
       </NavLink>
@@ -27,8 +43,10 @@
       <NavLink to="/credentials" icon="key">Credentials</NavLink>
       <NavLink to="/sync/conflicts" icon="conflict">
         Conflicts
-        <span v-if="pendingConflicts > 0"
-          class="ml-auto inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full text-xs font-bold bg-red-500 text-white">
+        <span
+          v-if="pendingConflicts > 0"
+          class="ml-auto inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full text-xs font-bold bg-red-500 text-white"
+        >
           {{ pendingConflicts }}
         </span>
       </NavLink>
@@ -51,23 +69,41 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { ref, watch, onMounted } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import NavLink from './NavLink.vue'
 import { countConflicts } from '@/api/sync'
 import { countDuplicates } from '@/api/contacts'
 
+defineProps<{ open: boolean }>()
+const emit = defineEmits<{ close: [] }>()
+
 const auth = useAuthStore()
+const route = useRoute()
 const pendingConflicts = ref(0)
 const pendingDuplicates = ref(0)
 
 async function fetchCounts() {
   await Promise.allSettled([
-    countConflicts().then(({ data }) => { pendingConflicts.value = data.pending }),
-    countDuplicates().then(({ data }) => { pendingDuplicates.value = data.pending }),
+    countConflicts().then(({ data }) => {
+      pendingConflicts.value = data.pending
+    }),
+    countDuplicates().then(({ data }) => {
+      pendingDuplicates.value = data.pending
+    }),
   ])
 }
 
 onMounted(fetchCounts)
+
+// The layout keeps the sidebar mounted across navigation, so the badges went stale the
+// moment a conflict was resolved or a duplicate merged.
+watch(
+  () => route.fullPath,
+  () => {
+    fetchCounts()
+    emit('close')
+  },
+)
 </script>

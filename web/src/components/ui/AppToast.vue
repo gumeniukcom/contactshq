@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div class="fixed top-4 right-4 z-50 space-y-2">
-      <TransitionGroup name="toast">
+      <TransitionGroup name="toast" role="status" aria-live="polite">
         <div
           v-for="toast in toasts"
           :key="toast.id"
@@ -13,9 +13,18 @@
           ]"
         >
           <span class="flex-1">{{ toast.message }}</span>
-          <button class="text-white/80 hover:text-white" @click="remove(toast.id)">
+          <button
+            class="text-white/80 hover:text-white"
+            aria-label="Dismiss notification"
+            @click="dismiss(toast.id)"
+          >
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -25,28 +34,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { useToast } from '@/composables/useToast'
 
-interface Toast {
-  id: number
-  message: string
-  type: 'success' | 'error' | 'info'
-}
-
-const toasts = ref<Toast[]>([])
-let nextId = 0
-
-function add(message: string, type: Toast['type'] = 'info') {
-  const id = nextId++
-  toasts.value.push({ id, message, type })
-  setTimeout(() => remove(id), 4000)
-}
-
-function remove(id: number) {
-  toasts.value = toasts.value.filter((t) => t.id !== id)
-}
-
-defineExpose({ add })
+const { toasts, dismiss } = useToast()
 </script>
 
 <style scoped>

@@ -1,5 +1,5 @@
 <template>
-  <AppModal :show="show" @close="$emit('cancel')">
+  <AppModal :show="show" :label="title" @close="$emit('cancel')">
     <h3 class="text-lg font-medium text-foreground mb-2">{{ title }}</h3>
     <p class="text-sm text-muted-foreground mb-4">{{ message }}</p>
 

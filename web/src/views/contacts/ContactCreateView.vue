@@ -29,7 +29,7 @@ async function handleCreate() {
   if (!formRef.value) return
   loading.value = true
   try {
-    await store.createContact(formRef.value.getVCardPayload())
+    await store.createContact(formRef.value.getFieldsPayload())
     router.push({ name: 'contacts' })
   } finally {
     loading.value = false

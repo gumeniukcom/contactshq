@@ -41,6 +41,10 @@ type CreateContactInput struct {
 	Title     string `json:"title"`
 	Note      string `json:"note"`
 	VCardData string `json:"vcard_data,omitempty"`
+
+	// Fields carries the full structured contact from the web form. When present it
+	// takes precedence over the flat fields above.
+	Fields *ContactFields `json:"fields,omitempty"`
 }
 
 // UpdateContactInput supports partial flat-field updates or a full vCard replacement.
@@ -52,7 +56,14 @@ type UpdateContactInput struct {
 	Org       *string `json:"org,omitempty"`
 	Title     *string `json:"title,omitempty"`
 	Note      *string `json:"note,omitempty"`
+
+	// VCardData replaces the stored card wholesale. Only clients that own the whole card
+	// — an import, another CardDAV server — should send it.
 	VCardData *string `json:"vcard_data,omitempty"`
+
+	// Fields carries the structured contact from the web form. It is merged into the
+	// stored vCard, so properties the form does not model survive the edit.
+	Fields *ContactFields `json:"fields,omitempty"`
 }
 
 func (s *ContactService) Create(ctx context.Context, userID string, input CreateContactInput) (*domain.Contact, error) {
@@ -67,7 +78,13 @@ func (s *ContactService) Create(ctx context.Context, userID string, input Create
 	var parsed *vcardpkg.ParsedContact
 	vcardData := input.VCardData
 
-	if vcardData == "" {
+	if input.Fields != nil {
+		parsed = input.Fields.ToParsed(uid)
+		vcardData, err = vcardpkg.BuildVCard(parsed)
+		if err != nil {
+			return nil, fmt.Errorf("build vcard: %w", err)
+		}
+	} else if vcardData == "" {
 		parsed = vcardpkg.NewFromSimple(uid, input.FirstName, input.LastName,
 			input.Email, input.Phone, input.Org, input.Title, input.Note)
 		vcardData, err = vcardpkg.BuildVCard(parsed)
@@ -138,7 +155,18 @@ func (s *ContactService) Update(ctx context.Context, userID, contactID string, i
 
 	var parsed *vcardpkg.ParsedContact
 
-	if input.VCardData != nil {
+	if input.Fields != nil {
+		parsed = input.Fields.ToParsed(contact.UID)
+		contact.VCardData, err = vcardpkg.MergeIntoVCard(contact.VCardData, parsed)
+		if err != nil {
+			return nil, fmt.Errorf("merge vcard: %w", err)
+		}
+		// The merge may have kept properties (a photo, a REV) the form never saw; re-read
+		// the card so the flat columns reflect what was actually stored.
+		if reparsed, perr := vcardpkg.ParseVCard(contact.VCardData); perr == nil {
+			parsed = reparsed
+		}
+	} else if input.VCardData != nil {
 		// Full vCard replacement
 		contact.VCardData = *input.VCardData
 		parsed, err = vcardpkg.ParseVCard(*input.VCardData)

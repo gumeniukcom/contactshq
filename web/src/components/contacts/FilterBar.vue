@@ -4,7 +4,11 @@
     <div class="relative" ref="catDropdownRef">
       <button
         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-muted/50"
-        :class="selectedCategories.length > 0 ? 'border-accent bg-accent/10 text-accent' : 'border-input text-foreground'"
+        :class="
+          selectedCategories.length > 0
+            ? 'border-accent bg-accent/10 text-accent'
+            : 'border-input text-foreground'
+        "
         @click="showCatDropdown = !showCatDropdown"
       >
         Tags
@@ -15,7 +19,11 @@
           {{ selectedCategories.length }}
         </span>
         <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-          <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+          <path
+            fill-rule="evenodd"
+            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+            clip-rule="evenodd"
+          />
         </svg>
       </button>
       <div
@@ -47,7 +55,11 @@
       >
         {{ selectedOrg || 'Organization' }}
         <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-          <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+          <path
+            fill-rule="evenodd"
+            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+            clip-rule="evenodd"
+          />
         </svg>
       </button>
       <div
@@ -57,7 +69,7 @@
         <button
           v-if="selectedOrg"
           class="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50"
-          @click="$emit('update:org', ''); showOrgDropdown = false"
+          @click="selectOrg('')"
         >
           All organizations
         </button>
@@ -66,7 +78,7 @@
           :key="org"
           class="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50"
           :class="org === selectedOrg ? 'text-accent font-medium' : 'text-foreground'"
-          @click="$emit('update:org', org); showOrgDropdown = false"
+          @click="selectOrg(org)"
         >
           {{ org }}
         </button>
@@ -76,7 +88,9 @@
     <!-- Has email pill -->
     <button
       class="px-3 py-1.5 text-sm border rounded-lg"
-      :class="hasEmail ? 'border-accent bg-accent/10 text-accent' : 'border-input text-foreground hover:bg-muted/50'"
+      :class="
+        hasEmail ? 'border-accent bg-accent/10 text-accent' : 'border-input text-foreground hover:bg-muted/50'
+      "
       @click="$emit('update:hasEmail', !hasEmail)"
     >
       Has email
@@ -85,7 +99,9 @@
     <!-- Has phone pill -->
     <button
       class="px-3 py-1.5 text-sm border rounded-lg"
-      :class="hasPhone ? 'border-accent bg-accent/10 text-accent' : 'border-input text-foreground hover:bg-muted/50'"
+      :class="
+        hasPhone ? 'border-accent bg-accent/10 text-accent' : 'border-input text-foreground hover:bg-muted/50'
+      "
       @click="$emit('update:hasPhone', !hasPhone)"
     >
       Has phone
@@ -124,6 +140,11 @@ const emit = defineEmits<{
 
 const showCatDropdown = ref(false)
 const showOrgDropdown = ref(false)
+
+function selectOrg(org: string) {
+  emit('update:org', org)
+  showOrgDropdown.value = false
+}
 const catDropdownRef = ref<HTMLElement>()
 const orgDropdownRef = ref<HTMLElement>()
 

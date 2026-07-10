@@ -14,6 +14,7 @@
             type="email"
             placeholder="you@example.com"
             id="email"
+            autocomplete="email"
             :error="error"
           />
           <AppInput
@@ -22,10 +23,9 @@
             type="password"
             placeholder="Password"
             id="password"
+            autocomplete="current-password"
           />
-          <AppButton type="submit" class="w-full" :loading="loading">
-            Sign In
-          </AppButton>
+          <AppButton type="submit" class="w-full" :loading="loading"> Sign In </AppButton>
         </form>
       </div>
     </div>

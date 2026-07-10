@@ -2,8 +2,8 @@
   <div class="max-w-2xl">
     <h1 class="text-2xl font-bold text-foreground mb-2">App Passwords</h1>
     <p class="text-muted-foreground mb-6">
-      Create app-specific passwords for CardDAV clients (iPhone, macOS Contacts, Thunderbird).
-      These are separate from your main password and can be revoked individually.
+      Create app-specific passwords for CardDAV clients (iPhone, macOS Contacts, Thunderbird). These are
+      separate from your main password and can be revoked individually.
     </p>
 
     <!-- Create -->
@@ -18,20 +18,24 @@
             id="app-pw-label"
           />
         </div>
-        <AppButton type="submit" :loading="creating" :disabled="!newLabel.trim()">
-          Create
-        </AppButton>
+        <AppButton type="submit" :loading="creating" :disabled="!newLabel.trim()"> Create </AppButton>
       </form>
     </AppCard>
 
     <!-- Token display (shown once after creation) -->
-    <div v-if="generatedToken" class="mb-6 p-4 bg-green-50 dark:bg-green-500/20 border border-green-200 dark:border-green-500/30 rounded-lg">
+    <div
+      v-if="generatedToken"
+      class="mb-6 p-4 bg-green-50 dark:bg-green-500/20 border border-green-200 dark:border-green-500/30 rounded-lg"
+    >
       <p class="font-medium text-green-800 dark:text-green-300 mb-2">App password created!</p>
       <p class="text-sm text-green-700 dark:text-green-400 mb-3">
         Copy this password now — it won't be shown again.
       </p>
       <div class="flex items-center gap-2">
-        <code class="flex-1 px-3 py-2 bg-white dark:bg-black/30 border border-green-300 dark:border-green-500/40 rounded font-mono text-sm text-foreground select-all break-all">{{ generatedToken }}</code>
+        <code
+          class="flex-1 px-3 py-2 bg-white dark:bg-black/30 border border-green-300 dark:border-green-500/40 rounded font-mono text-sm text-foreground select-all break-all"
+          >{{ generatedToken }}</code
+        >
         <AppButton variant="secondary" size="sm" @click="copyToken">
           {{ copied ? 'Copied!' : 'Copy' }}
         </AppButton>
@@ -55,11 +59,21 @@
             <span v-else> · Never used</span>
           </p>
         </div>
-        <AppButton variant="danger" size="sm" @click="handleDelete(pw.id, pw.label)">
+        <AppButton variant="danger" size="sm" @click="deleteTarget = { id: pw.id, label: pw.label }">
           Delete
         </AppButton>
       </AppCard>
     </div>
+
+    <ConfirmDialog
+      :show="!!deleteTarget"
+      title="Delete App Password"
+      :message="`Delete &quot;${deleteTarget?.label}&quot;? Any device using it will lose access immediately.`"
+      confirm-text="Delete"
+      :loading="deleting"
+      @confirm="handleDelete"
+      @cancel="deleteTarget = null"
+    />
   </div>
 </template>
 
@@ -71,6 +85,11 @@ import AppCard from '@/components/ui/AppCard.vue'
 import AppInput from '@/components/ui/AppInput.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import { formatDateTime } from '@/utils/date'
+import { useToast } from '@/composables/useToast'
+import { getApiError } from '@/api/client'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+
+const toast = useToast()
 
 const loading = ref(true)
 const creating = ref(false)
@@ -99,20 +118,28 @@ async function handleCreate() {
     generatedToken.value = data.token
     newLabel.value = ''
     await fetchPasswords()
-  } catch (err: any) {
-    alert(err?.response?.data?.error || 'Failed to create app password')
+  } catch (err: unknown) {
+    toast.error(getApiError(err, 'Failed to create app password'))
   } finally {
     creating.value = false
   }
 }
 
-async function handleDelete(id: string, label: string) {
-  if (!confirm(`Delete app password "${label}"? Any device using it will lose access.`)) return
+const deleteTarget = ref<{ id: string; label: string } | null>(null)
+const deleting = ref(false)
+
+async function handleDelete() {
+  if (!deleteTarget.value) return
+  deleting.value = true
   try {
-    await deleteAppPassword(id)
-    passwords.value = passwords.value.filter(p => p.id !== id)
-  } catch {
-    alert('Failed to delete app password')
+    await deleteAppPassword(deleteTarget.value.id)
+    passwords.value = passwords.value.filter((p) => p.id !== deleteTarget.value!.id)
+    toast.success('App password deleted')
+    deleteTarget.value = null
+  } catch (err: unknown) {
+    toast.error(getApiError(err, 'Failed to delete app password'))
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -120,7 +147,9 @@ async function copyToken() {
   try {
     await navigator.clipboard.writeText(generatedToken.value)
     copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
+    setTimeout(() => {
+      copied.value = false
+    }, 2000)
   } catch {
     // fallback — the code element has select-all
   }

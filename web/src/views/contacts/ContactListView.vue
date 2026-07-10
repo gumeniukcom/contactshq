@@ -31,11 +31,11 @@
         :selected-org="store.filterOrg"
         :has-email="store.filterHasEmail"
         :has-phone="store.filterHasPhone"
-        @update:categories="store.filterCategory = $event; resetPage()"
-        @update:org="store.filterOrg = $event; resetPage()"
-        @update:has-email="store.filterHasEmail = $event; resetPage()"
-        @update:has-phone="store.filterHasPhone = $event; resetPage()"
-        @clear="store.resetFilters(); resetPage()"
+        @update:categories="setCategories"
+        @update:org="setOrg"
+        @update:has-email="setHasEmail"
+        @update:has-phone="setHasPhone"
+        @clear="clearFilters"
       />
     </div>
 
@@ -47,7 +47,7 @@
         :sort-by="store.sortBy"
         :sort-dir="store.sortDir"
         :selected-ids="selectedIds"
-        :show-checkboxes="selectedIds.size > 0"
+        :show-checkboxes="true"
         @select="(c) => router.push({ name: 'contact-detail', params: { id: c.id } })"
         @delete="confirmDelete"
         @sort="handleSort"
@@ -60,7 +60,7 @@
         :total="store.total"
         show-per-page
         @update:page="page = $event"
-        @update:per-page="store.perPage = $event; resetPage()"
+        @update:per-page="setPerPage"
       />
     </AppCard>
 
@@ -68,7 +68,11 @@
     <div v-else>
       <!-- Loading skeleton -->
       <div v-if="store.loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div v-for="i in 6" :key="'skel-' + i" class="bg-card border border-border rounded-lg p-4 animate-pulse">
+        <div
+          v-for="i in 6"
+          :key="'skel-' + i"
+          class="bg-card border border-border rounded-lg p-4 animate-pulse"
+        >
           <div class="flex items-start gap-3">
             <div class="h-12 w-12 bg-muted rounded-full" />
             <div class="flex-1 space-y-2">
@@ -82,14 +86,24 @@
 
       <!-- Empty state -->
       <div v-else-if="store.contacts.length === 0" class="text-center py-16">
-        <svg class="mx-auto h-12 w-12 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+        <svg
+          class="mx-auto h-12 w-12 text-muted-foreground"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          stroke-width="1"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+          />
         </svg>
         <h3 class="mt-2 text-sm font-medium text-foreground">No contacts</h3>
         <p class="mt-1 text-sm text-muted-foreground">
           <template v-if="hasActiveFilters">
             No contacts match your filters.
-            <button class="text-accent hover:text-accent/80" @click="store.resetFilters(); resetPage()">Clear filters</button>
+            <button class="text-accent hover:text-accent/80" @click="clearFilters">Clear filters</button>
           </template>
           <template v-else>Get started by adding your first contact.</template>
         </p>
@@ -107,7 +121,7 @@
           :key="contact.id"
           :contact="contact"
           :selected="selectedIds.has(contact.id)"
-          :show-checkbox="selectedIds.size > 0"
+          :show-checkbox="true"
           @select="(c) => router.push({ name: 'contact-detail', params: { id: c.id } })"
           @toggle-select="toggleSelect"
         />
@@ -120,7 +134,7 @@
         :total="store.total"
         show-per-page
         @update:page="page = $event"
-        @update:per-page="store.perPage = $event; resetPage()"
+        @update:per-page="setPerPage"
       />
     </div>
 
@@ -202,16 +216,46 @@ const selectedIds = reactive(new Set<string>())
 // View mode: persisted in localStorage, auto-card on mobile
 const viewMode = ref<'table' | 'card'>(
   (localStorage.getItem('contacts-view-mode') as 'table' | 'card') ??
-  (window.innerWidth < 640 ? 'card' : 'table')
+    (window.innerWidth < 640 ? 'card' : 'table'),
 )
 watch(viewMode, (v) => localStorage.setItem('contacts-view-mode', v))
 
-const hasActiveFilters = computed(() =>
-  store.filterCategory.length > 0 || !!store.filterOrg || store.filterHasEmail || store.filterHasPhone
+const hasActiveFilters = computed(
+  () => store.filterCategory.length > 0 || !!store.filterOrg || store.filterHasEmail || store.filterHasPhone,
 )
 
 function load() {
   store.fetchContacts({ page: page.value, search: search.value || undefined })
+}
+
+function setCategories(value: string[]) {
+  store.filterCategory = value
+  resetPage()
+}
+
+function setOrg(value: string) {
+  store.filterOrg = value
+  resetPage()
+}
+
+function setHasEmail(value: boolean) {
+  store.filterHasEmail = value
+  resetPage()
+}
+
+function setHasPhone(value: boolean) {
+  store.filterHasPhone = value
+  resetPage()
+}
+
+function setPerPage(value: number) {
+  store.perPage = value
+  resetPage()
+}
+
+function clearFilters() {
+  store.resetFilters()
+  resetPage()
 }
 
 function resetPage() {
@@ -251,16 +295,16 @@ function toggleSelect(id: string) {
 }
 
 function toggleSelectAll() {
-  const allSelected = store.contacts.every(c => selectedIds.has(c.id))
+  const allSelected = store.contacts.every((c) => selectedIds.has(c.id))
   if (allSelected) {
-    store.contacts.forEach(c => selectedIds.delete(c.id))
+    store.contacts.forEach((c) => selectedIds.delete(c.id))
   } else {
-    store.contacts.forEach(c => selectedIds.add(c.id))
+    store.contacts.forEach((c) => selectedIds.add(c.id))
   }
 }
 
 function selectAllVisible() {
-  store.contacts.forEach(c => selectedIds.add(c.id))
+  store.contacts.forEach((c) => selectedIds.add(c.id))
 }
 
 // Delete handlers

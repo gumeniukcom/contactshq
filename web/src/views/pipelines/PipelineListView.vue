@@ -11,7 +11,7 @@
       <AppTable :columns="columns" :rows="pipelines" :loading="loading" empty-text="No pipelines yet">
         <template #body="{ rows }">
           <tr
-            v-for="p in (rows as Pipeline[])"
+            v-for="p in rows as Pipeline[]"
             :key="p.id"
             class="hover:bg-muted/50 cursor-pointer"
             @click="router.push({ name: 'pipeline-view', params: { id: p.id } })"
@@ -22,17 +22,26 @@
                 {{ p.enabled ? 'Enabled' : 'Disabled' }}
               </AppBadge>
             </td>
-            <td class="px-6 py-4 text-sm text-muted-foreground">{{ p.schedule ? humanizeCron(p.schedule) : '—' }}</td>
+            <td class="px-6 py-4 text-sm text-muted-foreground">
+              {{ p.schedule ? humanizeCron(p.schedule) : '—' }}
+            </td>
             <td class="px-6 py-4 text-sm text-right space-x-2 whitespace-nowrap">
-              <AppButton size="sm" variant="secondary" @click.stop="handleTrigger(p.id)">
+              <AppButton
+                size="sm"
+                variant="secondary"
+                :loading="triggeringId === p.id"
+                @click.stop="handleTrigger(p.id)"
+              >
                 Trigger
               </AppButton>
-              <AppButton size="sm" variant="secondary" @click.stop="router.push({ name: 'pipeline-edit', params: { id: p.id } })">
+              <AppButton
+                size="sm"
+                variant="secondary"
+                @click.stop="router.push({ name: 'pipeline-edit', params: { id: p.id } })"
+              >
                 Edit
               </AppButton>
-              <AppButton size="sm" variant="danger" @click.stop="confirmDelete(p)">
-                Delete
-              </AppButton>
+              <AppButton size="sm" variant="danger" @click.stop="confirmDelete(p)"> Delete </AppButton>
             </td>
           </tr>
         </template>
@@ -61,6 +70,10 @@ import AppCard from '@/components/ui/AppCard.vue'
 import AppTable from '@/components/ui/AppTable.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { useToast } from '@/composables/useToast'
+import { getApiError } from '@/api/client'
+
+const toast = useToast()
 
 const router = useRouter()
 const pipelines = ref<Pipeline[]>([])
@@ -86,8 +99,18 @@ async function load() {
 
 onMounted(load)
 
+const triggeringId = ref<string | null>(null)
+
 async function handleTrigger(id: string) {
-  await triggerPipeline(id)
+  triggeringId.value = id
+  try {
+    await triggerPipeline(id)
+    toast.success('Pipeline triggered — see the run history for results')
+  } catch (err: unknown) {
+    toast.error(getApiError(err, 'Failed to trigger pipeline'))
+  } finally {
+    triggeringId.value = null
+  }
 }
 
 function confirmDelete(p: Pipeline) {
