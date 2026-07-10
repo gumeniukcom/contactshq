@@ -33,14 +33,35 @@ const (
 	ConflictManual     ConflictMode = "manual"      // always queue for user review + skip
 )
 
-// SyncMode controls the direction of synchronisation.
+// SyncMode controls the direction of synchronisation. The internal address book is
+// always the local side, so a mode names which way contacts move relative to it.
 type SyncMode string
 
 const (
-	SyncModePull          SyncMode = "pull"          // remote → local (default)
-	SyncModePush          SyncMode = "push"          // local → remote
-	SyncModeBidirectional SyncMode = "bidirectional" // pull then push
+	SyncModeImport SyncMode = "import"  // remote → local (default)
+	SyncModeExport SyncMode = "export"  // local → remote
+	SyncModeTwoWay SyncMode = "two_way" // import, then export
 )
+
+// ErrUnknownSyncMode keeps a typo in a stored pipeline from silently running no phase
+// at all and reporting success.
+var ErrUnknownSyncMode = errors.New("unknown sync direction")
+
+// ParseSyncMode accepts the current vocabulary and the pull/push/bidirectional names it
+// replaced. The old names survive because migration 019 left every step with the
+// internal book as its destination, where pull always meant remote → local.
+func ParseSyncMode(s string) (SyncMode, error) {
+	switch s {
+	case "", string(SyncModeImport), "pull":
+		return SyncModeImport, nil
+	case string(SyncModeExport), "push":
+		return SyncModeExport, nil
+	case string(SyncModeTwoWay), "bidirectional":
+		return SyncModeTwoWay, nil
+	default:
+		return "", fmt.Errorf("%w: %q", ErrUnknownSyncMode, s)
+	}
+}
 
 // SyncResult summarises one Sync invocation.
 type SyncResult struct {
@@ -101,15 +122,15 @@ func NewEngineWithAllRepos(
 	return &Engine{syncRepo: syncRepo, syncRunRepo: runRepo, conflictRepo: conflictRepo, logger: logger}
 }
 
-// Sync synchronises source → dest (and optionally dest → source when mode is bidirectional or push).
-// Backward-compatible: callers that don't pass mode get SyncModePull behaviour.
-func (e *Engine) Sync(ctx context.Context, userID, pipelineID string, source, dest SyncProvider, conflictMode ConflictMode, modes ...SyncMode) (*SyncResult, error) {
-	mode := SyncModePull
+// Sync moves contacts between an external provider and the internal address book.
+// Callers that pass no mode get an import.
+func (e *Engine) Sync(ctx context.Context, userID, pipelineID string, remote, local SyncProvider, conflictMode ConflictMode, modes ...SyncMode) (*SyncResult, error) {
+	mode := SyncModeImport
 	if len(modes) > 0 {
 		mode = modes[0]
 	}
 
-	providerKey := source.Name() + "->" + dest.Name()
+	providerKey := remote.Name() + "->" + local.Name()
 
 	var run *domain.SyncRun
 	if e.syncRunRepo != nil {
@@ -127,7 +148,7 @@ func (e *Engine) Sync(ctx context.Context, userID, pipelineID string, source, de
 		}
 	}
 
-	result, err := e.doSync(ctx, userID, providerKey, source, dest, conflictMode, mode)
+	result, err := e.doSync(ctx, userID, providerKey, remote, local, conflictMode, mode)
 
 	if run != nil && e.syncRunRepo != nil {
 		finished := time.Now()
@@ -150,17 +171,17 @@ func (e *Engine) Sync(ctx context.Context, userID, pipelineID string, source, de
 	return result, err
 }
 
-func (e *Engine) doSync(ctx context.Context, userID, providerKey string, source, dest SyncProvider, conflictMode ConflictMode, mode SyncMode) (*SyncResult, error) {
+func (e *Engine) doSync(ctx context.Context, userID, providerKey string, remote, local SyncProvider, conflictMode ConflictMode, mode SyncMode) (*SyncResult, error) {
 	result := &SyncResult{}
 
-	if mode == SyncModePull || mode == SyncModeBidirectional {
-		if err := e.pullPhase(ctx, userID, providerKey, source, dest, conflictMode, result); err != nil {
+	if mode == SyncModeImport || mode == SyncModeTwoWay {
+		if err := e.pullPhase(ctx, userID, providerKey, remote, local, conflictMode, result); err != nil {
 			return result, err
 		}
 	}
 
-	if mode == SyncModePush || mode == SyncModeBidirectional {
-		if err := e.pushPhase(ctx, userID, providerKey, dest, source, conflictMode, result); err != nil {
+	if mode == SyncModeExport || mode == SyncModeTwoWay {
+		if err := e.pushPhase(ctx, userID, providerKey, local, remote, conflictMode, result); err != nil {
 			return result, err
 		}
 	}
@@ -168,20 +189,20 @@ func (e *Engine) doSync(ctx context.Context, userID, providerKey string, source,
 	return result, nil
 }
 
-// pullPhase syncs items from source into dest (remote → local).
+// pullPhase brings the remote provider's contacts into the local address book.
 //
 // sync_states rows map a remote id to a local id. The two are only equal by accident —
 // for contacts first created locally and pushed out, the provider assigns its own remote
 // id — so every lookup must go through the side it belongs to.
-func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, source, dest SyncProvider, conflictMode ConflictMode, result *SyncResult) error {
-	sourceItems, err := source.List(ctx)
+func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, remote, local SyncProvider, conflictMode ConflictMode, result *SyncResult) error {
+	remoteItems, err := remote.List(ctx)
 	if err != nil {
-		return fmt.Errorf("list source items: %w", err)
+		return fmt.Errorf("list remote items: %w", err)
 	}
 
-	destItems, err := dest.List(ctx)
+	localItems, err := local.List(ctx)
 	if err != nil {
-		return fmt.Errorf("list dest items: %w", err)
+		return fmt.Errorf("list local items: %w", err)
 	}
 
 	prevStates, err := e.syncRepo.ListByUser(ctx, userID, providerKey)
@@ -189,14 +210,14 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 		return fmt.Errorf("list sync states: %w", err)
 	}
 
-	sourceMap := make(map[string]SyncItem, len(sourceItems))
-	for _, item := range sourceItems {
-		sourceMap[item.RemoteID] = item
+	remoteMap := make(map[string]SyncItem, len(remoteItems))
+	for _, item := range remoteItems {
+		remoteMap[item.RemoteID] = item
 	}
 
-	destMap := make(map[string]SyncItem, len(destItems))
-	for _, item := range destItems {
-		destMap[item.RemoteID] = item
+	localMap := make(map[string]SyncItem, len(localItems))
+	for _, item := range localItems {
+		localMap[item.RemoteID] = item
 	}
 
 	prevByRemoteID := make(map[string]*domain.SyncState, len(prevStates))
@@ -207,7 +228,7 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 	// Refuse to act on a listing that would erase most of what we track.
 	missing := 0
 	for remoteID := range prevByRemoteID {
-		if _, exists := sourceMap[remoteID]; !exists {
+		if _, exists := remoteMap[remoteID]; !exists {
 			missing++
 		}
 	}
@@ -218,15 +239,15 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 	pending := e.pendingConflictsByRemoteID(ctx, userID, providerKey)
 	now := time.Now()
 
-	// Process source items
-	for remoteID, srcItem := range sourceMap {
+	// Process remote items
+	for remoteID, remoteItem := range remoteMap {
 		prev := prevByRemoteID[remoteID]
 
 		if prev == nil {
-			// NEW on source → Put to dest
-			put, err := dest.Put(ctx, srcItem)
+			// New on the remote → create locally
+			put, err := local.Put(ctx, remoteItem)
 			if err != nil {
-				e.logger.Error("sync: failed to put new item to dest", zap.String("remote_id", remoteID), zap.Error(err))
+				e.logger.Error("sync: failed to create local contact", zap.String("remote_id", remoteID), zap.Error(err))
 				result.Errors++
 				continue
 			}
@@ -237,10 +258,10 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 				ProviderType: providerKey,
 				RemoteID:     remoteID,
 				LocalID:      put.RemoteID,
-				RemoteETag:   srcItem.ETag,
+				RemoteETag:   remoteItem.ETag,
 				LocalETag:    put.ETag,
-				ContentHash:  contentHash(srcItem.VCardData),
-				BaseVCard:    srcItem.VCardData,
+				ContentHash:  contentHash(remoteItem.VCardData),
+				BaseVCard:    remoteItem.VCardData,
 				LastSyncedAt: now,
 			}
 			if err := e.syncRepo.Create(ctx, state); err != nil {
@@ -251,26 +272,26 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 			continue
 		}
 
-		// Check if source modified
-		sourceModified := prev.RemoteETag != srcItem.ETag || prev.ContentHash != contentHash(srcItem.VCardData)
-		if !sourceModified {
+		// Check if the remote changed
+		remoteModified := prev.RemoteETag != remoteItem.ETag || prev.ContentHash != contentHash(remoteItem.VCardData)
+		if !remoteModified {
 			continue
 		}
 
-		// Source modified — check dest, addressing it by its own id.
-		destItem, destExists := destMap[prev.LocalID]
-		destModified := destExists && prev.LocalETag != destItem.ETag
+		// The remote changed — check the local side, addressing it by its own id.
+		localItem, localExists := localMap[prev.LocalID]
+		localModified := localExists && prev.LocalETag != localItem.ETag
 
-		vcardToApply := srcItem.VCardData
+		vcardToApply := remoteItem.VCardData
 
-		if destModified {
+		if localModified {
 			result.Conflicts++
 
 			// Only auto and source_wins are allowed to resolve on their own. Manual must
 			// never silently merge, which is the whole point of asking the user.
 			var merged *MergeResult
 			if conflictMode == ConflictAuto {
-				if mergeResult, mergeErr := MergeVCards(prev.BaseVCard, destItem.VCardData, srcItem.VCardData); mergeErr == nil && mergeResult.AutoMerged {
+				if mergeResult, mergeErr := MergeVCards(prev.BaseVCard, localItem.VCardData, remoteItem.VCardData); mergeErr == nil && mergeResult.AutoMerged {
 					merged = mergeResult
 				}
 			}
@@ -279,7 +300,7 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 				vcardToApply = merged.MergedVCard
 			} else {
 				if conflictMode == ConflictAuto || conflictMode == ConflictManual {
-					e.recordConflict(ctx, userID, providerKey, now, prev, destItem, srcItem, pending)
+					e.recordConflict(ctx, userID, providerKey, now, prev, localItem, remoteItem, pending)
 				}
 
 				if conflictMode != ConflictSourceWins {
@@ -289,7 +310,7 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 			}
 		}
 
-		put, err := dest.Put(ctx, SyncItem{
+		put, err := local.Put(ctx, SyncItem{
 			RemoteID:  prev.LocalID,
 			ETag:      prev.LocalETag,
 			VCardData: vcardToApply,
@@ -299,7 +320,7 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 			continue
 		}
 
-		prev.RemoteETag = srcItem.ETag
+		prev.RemoteETag = remoteItem.ETag
 		prev.LocalID = put.RemoteID
 		prev.LocalETag = put.ETag
 		prev.ContentHash = contentHash(vcardToApply)
@@ -312,11 +333,11 @@ func (e *Engine) pullPhase(ctx context.Context, userID, providerKey string, sour
 		result.Updated++
 	}
 
-	// Handle deletions (items in prev state but not in source)
+	// Handle deletions (tracked contacts the remote no longer lists)
 	for remoteID, prev := range prevByRemoteID {
-		if _, exists := sourceMap[remoteID]; !exists {
-			if err := dest.Delete(ctx, prev.LocalID); err != nil {
-				e.logger.Error("sync: failed to delete from dest", zap.String("local_id", prev.LocalID), zap.Error(err))
+		if _, exists := remoteMap[remoteID]; !exists {
+			if err := local.Delete(ctx, prev.LocalID); err != nil {
+				e.logger.Error("sync: failed to delete local contact", zap.String("local_id", prev.LocalID), zap.Error(err))
 				result.Errors++
 				continue
 			}

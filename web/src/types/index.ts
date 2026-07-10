@@ -219,11 +219,15 @@ export interface Pipeline {
   updated_at: string
 }
 
+// A step always pairs one external provider (source) with the internal address book
+// (dest). Direction says which way contacts move between them.
+export type SyncDirection = 'import' | 'export' | 'two_way'
+
 export interface PipelineStep {
   source_type: string
   dest_type: string
   conflict_mode: 'source_wins' | 'dest_wins' | 'skip' | 'auto' | 'manual'
-  direction: 'pull' | 'push' | 'bidirectional'
+  direction: SyncDirection
   source_config?: string
   dest_config?: string
 }

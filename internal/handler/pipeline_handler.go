@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gumeniukcom/contactshq/internal/repository"
@@ -37,6 +38,23 @@ func (h *PipelineHandler) List(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"pipelines": pipelines})
 }
 
+// validateSteps rejects a pipeline the engine could not run, at the moment the user
+// saves it rather than silently at the next scheduled run.
+func validateSteps(steps []service.CreatePipelineStep) error {
+	if len(steps) == 0 {
+		return fmt.Errorf("a pipeline needs at least one step")
+	}
+	for i, step := range steps {
+		if err := chqsync.ValidateStep(step.SourceType, step.DestType); err != nil {
+			return fmt.Errorf("step %d: %w", i+1, err)
+		}
+		if _, err := chqsync.ParseSyncMode(step.Direction); err != nil {
+			return fmt.Errorf("step %d: %w", i+1, err)
+		}
+	}
+	return nil
+}
+
 func (h *PipelineHandler) Create(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
 
@@ -52,6 +70,10 @@ func (h *PipelineHandler) Create(c *fiber.Ctx) error {
 		if err := worker.ValidateCron(input.Schedule); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid cron expression"})
 		}
+	}
+
+	if err := validateSteps(input.Steps); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	pipeline, err := h.pipelineService.Create(c.Context(), userID, input)
@@ -94,6 +116,10 @@ func (h *PipelineHandler) Update(c *fiber.Ctx) error {
 		if err := worker.ValidateCron(input.Schedule); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid cron expression"})
 		}
+	}
+
+	if err := validateSteps(input.Steps); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	pipeline, err := h.pipelineService.Update(c.Context(), userID, pipelineID, input)

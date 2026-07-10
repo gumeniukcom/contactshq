@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -53,6 +54,33 @@ type StepResult struct {
 	Error     string      `json:"error,omitempty"`
 }
 
+// ProviderInternal is the name of the built-in address book provider.
+const ProviderInternal = "internal"
+
+// ErrInvalidStep rejects a step that does not have the internal address book on exactly
+// one side.
+var ErrInvalidStep = errors.New("invalid pipeline step")
+
+// ValidateStep enforces the one arrangement the system supports: contacts move between
+// an external provider and the internal address book, with the internal book as the
+// destination. Direction then says which way they travel.
+//
+// Provider-to-provider steps used to be expressible. They were never tested, and
+// conflict resolution cannot work for them: it resolves a conflict by loading the local
+// contact, and neither side is local. Chain two steps through the internal book instead.
+func ValidateStep(sourceType, destType string) error {
+	if destType != ProviderInternal {
+		return fmt.Errorf("%w: destination must be %q, got %q", ErrInvalidStep, ProviderInternal, destType)
+	}
+	if sourceType == ProviderInternal {
+		return fmt.Errorf("%w: source must be an external provider, got %q", ErrInvalidStep, sourceType)
+	}
+	if sourceType == "" {
+		return fmt.Errorf("%w: source provider is required", ErrInvalidStep)
+	}
+	return nil
+}
+
 func (o *PipelineOrchestrator) Execute(ctx context.Context, userID string, pipeline *domain.Pipeline) ([]StepResult, error) {
 	steps, err := o.pipelineRepo.GetSteps(ctx, pipeline.ID)
 	if err != nil {
@@ -62,30 +90,43 @@ func (o *PipelineOrchestrator) Execute(ctx context.Context, userID string, pipel
 	results := make([]StepResult, 0, len(steps))
 
 	for _, step := range steps {
-		source, err := o.createProvider(ctx, userID, step.SourceType, step.SourceConfig)
-		if err != nil {
+		if err := ValidateStep(step.SourceType, step.DestType); err != nil {
 			results = append(results, StepResult{
 				StepOrder: step.Order,
-				Error:     fmt.Sprintf("create source provider: %v", err),
+				Error:     err.Error(),
 			})
 			continue
 		}
 
-		dest, err := o.createProvider(ctx, userID, step.DestType, step.DestConfig)
+		mode, err := ParseSyncMode(step.Direction)
 		if err != nil {
 			results = append(results, StepResult{
 				StepOrder: step.Order,
-				Error:     fmt.Sprintf("create dest provider: %v", err),
+				Error:     err.Error(),
+			})
+			continue
+		}
+
+		remote, err := o.createProvider(ctx, userID, step.SourceType, step.SourceConfig)
+		if err != nil {
+			results = append(results, StepResult{
+				StepOrder: step.Order,
+				Error:     fmt.Sprintf("create %s provider: %v", step.SourceType, err),
+			})
+			continue
+		}
+
+		local, err := o.createProvider(ctx, userID, step.DestType, step.DestConfig)
+		if err != nil {
+			results = append(results, StepResult{
+				StepOrder: step.Order,
+				Error:     fmt.Sprintf("create internal provider: %v", err),
 			})
 			continue
 		}
 
 		conflictMode := ConflictMode(step.ConflictMode)
-		mode := SyncMode(step.Direction)
-		if mode == "" {
-			mode = SyncModePull
-		}
-		result, err := o.engine.Sync(ctx, userID, pipeline.ID, source, dest, conflictMode, mode)
+		result, err := o.engine.Sync(ctx, userID, pipeline.ID, remote, local, conflictMode, mode)
 		if err != nil {
 			results = append(results, StepResult{
 				StepOrder: step.Order,

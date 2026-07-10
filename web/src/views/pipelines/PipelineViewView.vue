@@ -31,13 +31,10 @@
           class="flex items-center gap-2 text-sm text-muted-foreground"
         >
           <span class="font-medium text-muted-foreground">{{ i + 1 }}.</span>
-          <span class="font-medium">{{ step.source_type }}</span>
-          <svg class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-          </svg>
-          <span class="font-medium">{{ step.dest_type }}</span>
+          <span class="font-medium">{{ flowLeft(step) }}</span>
+          <span class="text-muted-foreground">{{ flowArrow(step) }}</span>
+          <span class="font-medium">{{ flowRight(step) }}</span>
           <span class="text-muted-foreground">·</span>
-          <span class="text-xs bg-muted rounded px-1.5 py-0.5">{{ step.direction }}</span>
           <span class="text-xs bg-muted rounded px-1.5 py-0.5">{{ step.conflict_mode }}</span>
         </div>
       </div>
@@ -130,6 +127,7 @@ import { useRoute, useRouter } from 'vue-router'
 import type { Pipeline, SyncRun } from '@/types'
 import { getPipeline, triggerPipeline, listPipelineRuns } from '@/api/pipelines'
 import { humanizeCron } from '@/utils/cron'
+import { flowLeft, flowRight, flowArrow } from '@/utils/pipeline'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'

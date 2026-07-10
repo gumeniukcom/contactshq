@@ -101,7 +101,7 @@ func TestPush_CapturesRemoteAssignedID(t *testing.T) {
 		RemoteID: "local-uid-1", ETag: "l1", VCardData: makeVCard("local-uid-1", "Alice"),
 	}
 
-	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModePush)
+	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModeExport)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Created)
 
@@ -130,10 +130,10 @@ func TestBidirectional_DoesNotDestroyPushedContact(t *testing.T) {
 		RemoteID: "local-uid-1", ETag: "l1", VCardData: makeVCard("local-uid-1", "Alice"),
 	}
 
-	_, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModePush)
+	_, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModeExport)
 	require.NoError(t, err)
 
-	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModeBidirectional)
+	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModeTwoWay)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, res.Deleted, "the pushed contact must not be deleted locally")
@@ -157,13 +157,13 @@ func TestPush_DeleteUsesRemoteID(t *testing.T) {
 		local.items[uid] = chqsync.SyncItem{RemoteID: uid, ETag: "l", VCardData: makeVCard(uid, "Contact")}
 	}
 
-	_, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModePush)
+	_, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModeExport)
 	require.NoError(t, err)
 	require.Len(t, remote.items, 4)
 
 	delete(local.items, "local-uid-2")
 
-	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModePush)
+	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictAuto, chqsync.SyncModeExport)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, res.Deleted)
@@ -182,14 +182,14 @@ func TestPush_RemoteChangedSinceLastSync_QueuesConflict(t *testing.T) {
 
 	local.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "l1", VCardData: makeVCard("uid1", "Alice")}
 
-	_, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictManual, chqsync.SyncModePush)
+	_, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictManual, chqsync.SyncModeExport)
 	require.NoError(t, err)
 
 	// Both sides diverge from the synced base.
 	local.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "l2", VCardData: makeVCard("uid1", "Alice Local")}
 	remote.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "r2", VCardData: makeVCard("uid1", "Alice Remote")}
 
-	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictManual, chqsync.SyncModePush)
+	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictManual, chqsync.SyncModeExport)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, res.Conflicts)
@@ -208,13 +208,13 @@ func TestPush_DestWinsOverwritesRemote(t *testing.T) {
 	remote := newMemProvider("carddav")
 
 	local.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "l1", VCardData: makeVCard("uid1", "Alice")}
-	_, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictDestWins, chqsync.SyncModePush)
+	_, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictDestWins, chqsync.SyncModeExport)
 	require.NoError(t, err)
 
 	local.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "l2", VCardData: makeVCard("uid1", "Alice Local")}
 	remote.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "r2", VCardData: makeVCard("uid1", "Alice Remote")}
 
-	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictDestWins, chqsync.SyncModePush)
+	res, err := engine.Sync(ctx, "u1", "p1", remote, local, chqsync.ConflictDestWins, chqsync.SyncModeExport)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, res.Updated)
@@ -235,14 +235,14 @@ func TestPull_EmptySourceListingAbortsInsteadOfDeleting(t *testing.T) {
 		src.items[uid] = chqsync.SyncItem{RemoteID: uid, ETag: "e", VCardData: makeVCard(uid, "Contact")}
 	}
 
-	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModePull)
+	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModeImport)
 	require.NoError(t, err)
 	require.Len(t, dst.items, 6)
 
 	// The provider now answers with nothing — an expired token, not six deletions.
 	src.items = map[string]chqsync.SyncItem{}
 
-	_, err = engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModePull)
+	_, err = engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModeImport)
 	require.ErrorIs(t, err, chqsync.ErrMassDeletion)
 	assert.Len(t, dst.items, 6, "local contacts must be untouched")
 }
@@ -260,12 +260,12 @@ func TestPull_SmallDeletionPropagates(t *testing.T) {
 		uid := fmt.Sprintf("uid%d", i)
 		src.items[uid] = chqsync.SyncItem{RemoteID: uid, ETag: "e", VCardData: makeVCard(uid, "Contact")}
 	}
-	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModePull)
+	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModeImport)
 	require.NoError(t, err)
 
 	delete(src.items, "uid3")
 
-	res, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModePull)
+	res, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModeImport)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Deleted)
 	assert.Len(t, dst.items, 5)
@@ -283,12 +283,12 @@ func TestPull_DeletionGuardIgnoresTinyAddressBooks(t *testing.T) {
 
 	src.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "e", VCardData: makeVCard("uid1", "A")}
 	src.items["uid2"] = chqsync.SyncItem{RemoteID: "uid2", ETag: "e", VCardData: makeVCard("uid2", "B")}
-	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModePull)
+	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModeImport)
 	require.NoError(t, err)
 
 	src.items = map[string]chqsync.SyncItem{}
 
-	res, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModePull)
+	res, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictAuto, chqsync.SyncModeImport)
 	require.NoError(t, err)
 	assert.Equal(t, 2, res.Deleted)
 	assert.Empty(t, dst.items)
@@ -306,7 +306,7 @@ func TestPull_ConflictIsDedupedAcrossRuns(t *testing.T) {
 	dst := newMemProvider("dest")
 
 	src.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "e1", VCardData: makeVCard("uid1", "Alice")}
-	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictManual, chqsync.SyncModePull)
+	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictManual, chqsync.SyncModeImport)
 	require.NoError(t, err)
 
 	// Diverge both sides on the same field.
@@ -314,7 +314,7 @@ func TestPull_ConflictIsDedupedAcrossRuns(t *testing.T) {
 	dst.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "d2", VCardData: makeVCard("uid1", "Alice Local")}
 
 	for run := 0; run < 3; run++ {
-		_, err = engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictManual, chqsync.SyncModePull)
+		_, err = engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictManual, chqsync.SyncModeImport)
 		require.NoError(t, err)
 	}
 
@@ -334,7 +334,7 @@ func TestPull_ManualModeDoesNotAutoMerge(t *testing.T) {
 
 	base := "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:uid1\r\nFN:Alice\r\nEND:VCARD\r\n"
 	src.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "e1", VCardData: base}
-	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictManual, chqsync.SyncModePull)
+	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictManual, chqsync.SyncModeImport)
 	require.NoError(t, err)
 
 	// Disjoint edits — a three-way merge would combine them without conflict.
@@ -343,7 +343,7 @@ func TestPull_ManualModeDoesNotAutoMerge(t *testing.T) {
 	dst.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "d2",
 		VCardData: "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:uid1\r\nFN:Alice\r\nTEL:+15551234567\r\nEND:VCARD\r\n"}
 
-	res, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictManual, chqsync.SyncModePull)
+	res, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictManual, chqsync.SyncModeImport)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, res.Skipped, "manual mode must defer to the user")
@@ -363,13 +363,13 @@ func TestPull_SourceWinsLeavesNoPendingConflict(t *testing.T) {
 	dst := newMemProvider("dest")
 
 	src.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "e1", VCardData: makeVCard("uid1", "Alice")}
-	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictSourceWins, chqsync.SyncModePull)
+	_, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictSourceWins, chqsync.SyncModeImport)
 	require.NoError(t, err)
 
 	src.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "e2", VCardData: makeVCard("uid1", "Alice Remote")}
 	dst.items["uid1"] = chqsync.SyncItem{RemoteID: "uid1", ETag: "d2", VCardData: makeVCard("uid1", "Alice Local")}
 
-	res, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictSourceWins, chqsync.SyncModePull)
+	res, err := engine.Sync(ctx, "u1", "p1", src, dst, chqsync.ConflictSourceWins, chqsync.SyncModeImport)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, res.Updated)

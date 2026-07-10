@@ -19,39 +19,30 @@
             <AppButton size="sm" variant="secondary" @click="addStep">Add Step</AppButton>
           </div>
           <div v-for="(step, i) in form.steps" :key="i" class="mb-4 p-3 rounded-md border border-border">
-            <div class="flex gap-3 items-end">
-              <div class="flex-1">
-                <label class="block text-xs text-muted-foreground mb-1">Source</label>
+            <div class="flex flex-wrap gap-3 items-end">
+              <div class="flex-1 min-w-[10rem]">
+                <label class="block text-xs text-muted-foreground mb-1">Provider</label>
                 <select v-model="step.source_type" class="block w-full rounded-md border-input text-sm px-3 py-2 border">
-                  <option value="internal">Internal</option>
                   <option value="carddav">CardDAV</option>
                   <option value="google">Google</option>
                 </select>
               </div>
-              <div class="flex-1">
-                <label class="block text-xs text-muted-foreground mb-1">Destination</label>
-                <select v-model="step.dest_type" class="block w-full rounded-md border-input text-sm px-3 py-2 border">
-                  <option value="internal">Internal</option>
-                  <option value="carddav">CardDAV</option>
-                  <option value="google">Google</option>
-                </select>
-              </div>
-              <div class="flex-1">
+              <div class="flex-1 min-w-[14rem]">
                 <label class="block text-xs text-muted-foreground mb-1">Direction</label>
                 <select v-model="step.direction" class="block w-full rounded-md border-input text-sm px-3 py-2 border">
-                  <option value="pull">Pull (remote → local)</option>
-                  <option value="push">Push (local → remote)</option>
-                  <option value="bidirectional">Bidirectional</option>
+                  <option value="import">Import ({{ providerLabel(step.source_type) }} → ContactsHQ)</option>
+                  <option value="export">Export (ContactsHQ → {{ providerLabel(step.source_type) }})</option>
+                  <option value="two_way">Two-way</option>
                 </select>
               </div>
-              <div class="flex-1">
+              <div class="flex-1 min-w-[12rem]">
                 <label class="block text-xs text-muted-foreground mb-1">Conflict</label>
                 <select v-model="step.conflict_mode" class="block w-full rounded-md border-input text-sm px-3 py-2 border">
                   <option value="auto">Auto-merge (three-way)</option>
-                  <option value="source_wins">Source wins</option>
-                  <option value="dest_wins">Destination wins</option>
+                  <option value="source_wins">{{ providerLabel(step.source_type) }} wins</option>
+                  <option value="dest_wins">ContactsHQ wins</option>
                   <option value="skip">Skip on conflict</option>
-                  <option value="manual">Always ask user</option>
+                  <option value="manual">Always ask me</option>
                 </select>
               </div>
               <button type="button" class="text-destructive hover:text-destructive/80 pb-2" @click="form.steps.splice(i, 1)">
@@ -61,7 +52,6 @@
               </button>
             </div>
 
-            <!-- Source CardDAV config -->
             <CardDAVStepConfig
               v-if="step.source_type === 'carddav'"
               :index="i"
@@ -71,32 +61,11 @@
               class="mt-3"
             />
 
-            <!-- Source Google config -->
             <GoogleStepConfig
               v-if="step.source_type === 'google'"
               :index="i"
               side="src"
               v-model="step._gsrc"
-              :credentials="googleCredentials"
-              class="mt-3"
-            />
-
-            <!-- Dest CardDAV config -->
-            <CardDAVStepConfig
-              v-if="step.dest_type === 'carddav'"
-              :index="i"
-              side="dst"
-              v-model="step._dst"
-              :credentials="cardDAVCredentials"
-              class="mt-3"
-            />
-
-            <!-- Dest Google config -->
-            <GoogleStepConfig
-              v-if="step.dest_type === 'google'"
-              :index="i"
-              side="dst"
-              v-model="step._gdst"
               :credentials="googleCredentials"
               class="mt-3"
             />
@@ -122,6 +91,7 @@ import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import ScheduleInput from '@/components/ui/ScheduleInput.vue'
 import { SYNC_PRESETS } from '@/utils/cron'
+import { providerLabel } from '@/utils/pipeline'
 import CardDAVStepConfig from './CardDAVStepConfig.vue'
 import GoogleStepConfig from './GoogleStepConfig.vue'
 
@@ -137,15 +107,14 @@ export interface GoogleConfig {
   credential_id: string
 }
 
+// A step always moves contacts between one external provider and the internal address
+// book, which is why there is no destination picker: dest_type is always 'internal'.
 interface StepFormItem {
   source_type: string
-  dest_type: string
   conflict_mode: string
   direction: string
   _src: CardDAVConfig
-  _dst: CardDAVConfig
   _gsrc: GoogleConfig
-  _gdst: GoogleConfig
 }
 
 const router = useRouter()
@@ -162,7 +131,7 @@ function emptyGoogle(): GoogleConfig {
 }
 
 function defaultStep(): StepFormItem {
-  return { source_type: 'internal', dest_type: 'carddav', conflict_mode: 'auto', direction: 'pull', _src: emptyCardDAV(), _dst: emptyCardDAV(), _gsrc: emptyGoogle(), _gdst: emptyGoogle() }
+  return { source_type: 'carddav', conflict_mode: 'auto', direction: 'import', _src: emptyCardDAV(), _gsrc: emptyGoogle() }
 }
 
 const form = reactive({
@@ -204,25 +173,18 @@ function buildGoogleConfig(cfg: GoogleConfig): string {
 }
 
 function buildSourceConfig(s: StepFormItem): string {
-  if (s.source_type === 'carddav') return buildStepConfig(s._src)
   if (s.source_type === 'google') return buildGoogleConfig(s._gsrc)
-  return '{}'
-}
-
-function buildDestConfig(s: StepFormItem): string {
-  if (s.dest_type === 'carddav') return buildStepConfig(s._dst)
-  if (s.dest_type === 'google') return buildGoogleConfig(s._gdst)
-  return '{}'
+  return buildStepConfig(s._src)
 }
 
 function buildSteps(): PipelineStep[] {
   return form.steps.map(s => ({
     source_type: s.source_type,
-    dest_type: s.dest_type,
+    dest_type: 'internal',
     conflict_mode: s.conflict_mode as PipelineStep['conflict_mode'],
     direction: s.direction as PipelineStep['direction'],
     source_config: buildSourceConfig(s),
-    dest_config: buildDestConfig(s),
+    dest_config: '{}',
   }))
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
+	chqsync "github.com/gumeniukcom/contactshq/internal/sync"
 )
 
 var ErrPipelineNotFound = errors.New("pipeline not found")
@@ -33,6 +34,32 @@ type CreatePipelineStep struct {
 	DestType     string `json:"dest_type"`
 	DestConfig   string `json:"dest_config"`
 	ConflictMode string `json:"conflict_mode"`
+	Direction    string `json:"direction"`
+}
+
+// buildStep normalises the two fields a client may leave blank. Direction was previously
+// absent from this struct entirely, so every step silently fell back to the column
+// default no matter what the user chose in the form.
+func buildStep(pipelineID string, order int, in CreatePipelineStep) *domain.PipelineStep {
+	conflictMode := in.ConflictMode
+	if conflictMode == "" {
+		conflictMode = "source_wins"
+	}
+	direction := in.Direction
+	if direction == "" {
+		direction = string(chqsync.SyncModeImport)
+	}
+	return &domain.PipelineStep{
+		ID:           uuid.New().String(),
+		PipelineID:   pipelineID,
+		Order:        order,
+		SourceType:   in.SourceType,
+		SourceConfig: in.SourceConfig,
+		DestType:     in.DestType,
+		DestConfig:   in.DestConfig,
+		ConflictMode: conflictMode,
+		Direction:    direction,
+	}
 }
 
 func (s *PipelineService) Create(ctx context.Context, userID string, input CreatePipelineInput) (*domain.Pipeline, error) {
@@ -52,21 +79,7 @@ func (s *PipelineService) Create(ctx context.Context, userID string, input Creat
 	}
 
 	for i, stepInput := range input.Steps {
-		conflictMode := stepInput.ConflictMode
-		if conflictMode == "" {
-			conflictMode = "source_wins"
-		}
-		step := &domain.PipelineStep{
-			ID:           uuid.New().String(),
-			PipelineID:   pipeline.ID,
-			Order:        i + 1,
-			SourceType:   stepInput.SourceType,
-			SourceConfig: stepInput.SourceConfig,
-			DestType:     stepInput.DestType,
-			DestConfig:   stepInput.DestConfig,
-			ConflictMode: conflictMode,
-		}
-		if err := s.pipelineRepo.CreateStep(ctx, step); err != nil {
+		if err := s.pipelineRepo.CreateStep(ctx, buildStep(pipeline.ID, i+1, stepInput)); err != nil {
 			return nil, err
 		}
 	}
@@ -110,21 +123,7 @@ func (s *PipelineService) Update(ctx context.Context, userID, pipelineID string,
 	}
 
 	for i, stepInput := range input.Steps {
-		conflictMode := stepInput.ConflictMode
-		if conflictMode == "" {
-			conflictMode = "source_wins"
-		}
-		step := &domain.PipelineStep{
-			ID:           uuid.New().String(),
-			PipelineID:   pipelineID,
-			Order:        i + 1,
-			SourceType:   stepInput.SourceType,
-			SourceConfig: stepInput.SourceConfig,
-			DestType:     stepInput.DestType,
-			DestConfig:   stepInput.DestConfig,
-			ConflictMode: conflictMode,
-		}
-		if err := s.pipelineRepo.CreateStep(ctx, step); err != nil {
+		if err := s.pipelineRepo.CreateStep(ctx, buildStep(pipelineID, i+1, stepInput)); err != nil {
 			return nil, err
 		}
 	}
