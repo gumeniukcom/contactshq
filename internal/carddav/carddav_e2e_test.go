@@ -305,3 +305,128 @@ func TestPutUpdatesExistingContact(t *testing.T) {
 	require.Contains(t, body, "Smith")
 	require.NotContains(t, body, "Doe")
 }
+
+// etagOf reads the ETag a PUT or GET reported for a contact.
+func etagOf(t *testing.T, srv *chqcarddav.Server, path string) string {
+	t.Helper()
+
+	resp := do(t, srv, http.MethodGet, path, "", nil)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	etag := resp.Header.Get("ETag")
+	require.NotEmpty(t, etag, "server must expose an ETag for conditional requests")
+	return etag
+}
+
+// Two devices editing the same contact used to overwrite each other in silence: the
+// If-Match header a client sends to guard against that was ignored.
+func TestPutWithStaleIfMatchIsRejected(t *testing.T) {
+	srv, _, _ := setupServer(t)
+
+	put := do(t, srv, http.MethodPut, objectPath(), sampleVCard,
+		map[string]string{"Content-Type": "text/vcard"})
+	require.Equal(t, http.StatusCreated, put.StatusCode)
+
+	staleETag := etagOf(t, srv, objectPath())
+
+	// Someone else saves a new version, moving the ETag on.
+	updated := strings.Replace(sampleVCard, "FN:Jane Doe", "FN:Jane Elsewhere", 1)
+	put2 := do(t, srv, http.MethodPut, objectPath(), updated,
+		map[string]string{"Content-Type": "text/vcard"})
+	require.Equal(t, http.StatusCreated, put2.StatusCode)
+
+	// Our client still holds the old ETag and must be refused.
+	mine := strings.Replace(sampleVCard, "FN:Jane Doe", "FN:Jane Mine", 1)
+	resp := do(t, srv, http.MethodPut, objectPath(), mine, map[string]string{
+		"Content-Type": "text/vcard",
+		"If-Match":     staleETag,
+	})
+	require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode)
+
+	get := do(t, srv, http.MethodGet, objectPath(), "", nil)
+	require.Contains(t, readBody(t, get), "Jane Elsewhere", "the other device's edit must survive")
+}
+
+func TestPutWithCurrentIfMatchSucceeds(t *testing.T) {
+	srv, _, _ := setupServer(t)
+
+	put := do(t, srv, http.MethodPut, objectPath(), sampleVCard,
+		map[string]string{"Content-Type": "text/vcard"})
+	require.Equal(t, http.StatusCreated, put.StatusCode)
+
+	current := etagOf(t, srv, objectPath())
+
+	updated := strings.Replace(sampleVCard, "FN:Jane Doe", "FN:Jane Updated", 1)
+	resp := do(t, srv, http.MethodPut, objectPath(), updated, map[string]string{
+		"Content-Type": "text/vcard",
+		"If-Match":     current,
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	get := do(t, srv, http.MethodGet, objectPath(), "", nil)
+	require.Contains(t, readBody(t, get), "Jane Updated")
+}
+
+// "If-None-Match: *" means create-only. A client using it must not clobber a contact
+// that already exists.
+func TestPutWithIfNoneMatchRejectsExistingContact(t *testing.T) {
+	srv, _, _ := setupServer(t)
+
+	put := do(t, srv, http.MethodPut, objectPath(), sampleVCard,
+		map[string]string{"Content-Type": "text/vcard"})
+	require.Equal(t, http.StatusCreated, put.StatusCode)
+
+	updated := strings.Replace(sampleVCard, "FN:Jane Doe", "FN:Should Not Land", 1)
+	resp := do(t, srv, http.MethodPut, objectPath(), updated, map[string]string{
+		"Content-Type":  "text/vcard",
+		"If-None-Match": "*",
+	})
+	require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode)
+
+	get := do(t, srv, http.MethodGet, objectPath(), "", nil)
+	require.Contains(t, readBody(t, get), "Jane Doe")
+}
+
+func TestPutWithIfNoneMatchCreatesNewContact(t *testing.T) {
+	srv, _, _ := setupServer(t)
+
+	resp := do(t, srv, http.MethodPut, objectPath(), sampleVCard, map[string]string{
+		"Content-Type":  "text/vcard",
+		"If-None-Match": "*",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+}
+
+// If-Match on a contact that does not exist cannot be satisfied.
+func TestPutWithIfMatchOnMissingContactIsRejected(t *testing.T) {
+	srv, _, _ := setupServer(t)
+
+	resp := do(t, srv, http.MethodPut, objectPath(), sampleVCard, map[string]string{
+		"Content-Type": "text/vcard",
+		"If-Match":     `"whatever"`,
+	})
+	require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode)
+}
+
+// go-webdav quotes the ETag when it writes the header, so the backend must hand it the
+// bare value. Quoting it twice yields `""abc""`, which no client can match against.
+func TestETagHeaderIsSingleQuoted(t *testing.T) {
+	srv, _, _ := setupServer(t)
+
+	put := do(t, srv, http.MethodPut, objectPath(), sampleVCard,
+		map[string]string{"Content-Type": "text/vcard"})
+	require.Equal(t, http.StatusCreated, put.StatusCode)
+
+	for name, etag := range map[string]string{
+		"PUT": put.Header.Get("ETag"),
+		"GET": etagOf(t, srv, objectPath()),
+	} {
+		require.NotEmpty(t, etag, "%s must return an ETag", name)
+		require.True(t, strings.HasPrefix(etag, `"`) && strings.HasSuffix(etag, `"`),
+			"%s ETag %q must be quoted", name, etag)
+		inner := strings.Trim(etag, `"`)
+		require.NotContains(t, inner, `"`, "%s ETag %q is doubly quoted", name, etag)
+		require.NotEmpty(t, inner)
+	}
+}

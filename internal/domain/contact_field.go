@@ -85,3 +85,16 @@ type ContactDate struct {
 	Value     string `bun:",notnull"      json:"value"` // raw vCard date string
 	Label     string `bun:",default:''"   json:"label"`
 }
+
+// ChildRecords bundles every multi-value row that belongs to a contact. A contact and
+// its children have to be written together — a contact whose child rows are missing is
+// invisible to search, filters and duplicate detection — so they travel as one value.
+type ChildRecords struct {
+	Emails     []*ContactEmail
+	Phones     []*ContactPhone
+	Addresses  []*ContactAddress
+	URLs       []*ContactURL
+	IMs        []*ContactIM
+	Categories []*ContactCategory
+	Dates      []*ContactDate
+}

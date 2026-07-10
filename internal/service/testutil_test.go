@@ -13,9 +13,19 @@ type mockContactRepo struct {
 	contacts map[string]*domain.Contact
 	byUID    map[string]*domain.Contact // key: addressBookID+":"+uid
 	updates  int                        // Update() call count
-	// emailsWritten records the last ReplaceEmails payload per contact, so tests can
-	// tell a persisted write apart from a mutation of the pointer they already hold.
+	saves    int                        // Save() call count
+	// emailsWritten records the last child-row payload per contact, so tests can tell a
+	// persisted write apart from a mutation of the pointer they already hold.
 	emailsWritten map[string][]*domain.ContactEmail
+}
+
+// Save mirrors the repository: contact row and child rows land together.
+func (m *mockContactRepo) Save(_ context.Context, c *domain.Contact, children domain.ChildRecords) error {
+	m.saves++
+	m.contacts[c.ID] = c
+	m.byUID[c.AddressBookID+":"+c.UID] = c
+	m.emailsWritten[c.ID] = children.Emails
+	return nil
 }
 
 func newMockContactRepo() *mockContactRepo {

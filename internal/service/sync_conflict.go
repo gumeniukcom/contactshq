@@ -88,11 +88,8 @@ func (s *SyncConflictService) Resolve(ctx context.Context, userID, conflictID st
 	contact.UpdatedAt = now
 	vcardpkg.ApplyToContact(contact, parsed)
 
-	if err := s.contactRepo.Update(ctx, contact); err != nil {
-		return nil, fmt.Errorf("update contact: %w", err)
-	}
-	if err := writeChildRecords(ctx, s.contactRepo, contact.ID, parsed); err != nil {
-		return nil, fmt.Errorf("write child records: %w", err)
+	if err := s.contactRepo.Save(ctx, contact, vcardpkg.ChildRecordsFor(contact.ID, parsed)); err != nil {
+		return nil, fmt.Errorf("save contact: %w", err)
 	}
 
 	if err := s.advanceSyncState(ctx, userID, conflict, resolved); err != nil {

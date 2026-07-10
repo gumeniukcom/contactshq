@@ -98,10 +98,7 @@ func (s *ContactService) Create(ctx context.Context, userID string, input Create
 	}
 	vcardpkg.ApplyToContact(contact, parsed)
 
-	if err := s.contactRepo.Create(ctx, contact); err != nil {
-		return nil, err
-	}
-	if err := s.writeChildRecords(ctx, contact.ID, parsed); err != nil {
+	if err := s.contactRepo.Save(ctx, contact, vcardpkg.ChildRecordsFor(contact.ID, parsed)); err != nil {
 		return nil, err
 	}
 
@@ -197,10 +194,7 @@ func (s *ContactService) Update(ctx context.Context, userID, contactID string, i
 	contact.ETag = generateETag(contact.VCardData)
 	contact.UpdatedAt = time.Now()
 
-	if err := s.contactRepo.Update(ctx, contact); err != nil {
-		return nil, err
-	}
-	if err := s.writeChildRecords(ctx, contact.ID, parsed); err != nil {
+	if err := s.contactRepo.Save(ctx, contact, vcardpkg.ChildRecordsFor(contact.ID, parsed)); err != nil {
 		return nil, err
 	}
 
@@ -270,32 +264,6 @@ func (s *ContactService) ListAll(ctx context.Context, userID string) ([]*domain.
 	}
 
 	return s.contactRepo.ListAll(ctx, ab.ID)
-}
-
-// writeChildRecords writes all multi-value child records for a contact.
-func (s *ContactService) writeChildRecords(ctx context.Context, contactID string, p *vcardpkg.ParsedContact) error {
-	if err := s.contactRepo.ReplaceEmails(ctx, contactID, vcardpkg.ToEmails(contactID, p.Emails)); err != nil {
-		return fmt.Errorf("replace emails: %w", err)
-	}
-	if err := s.contactRepo.ReplacePhones(ctx, contactID, vcardpkg.ToPhones(contactID, p.Phones)); err != nil {
-		return fmt.Errorf("replace phones: %w", err)
-	}
-	if err := s.contactRepo.ReplaceAddresses(ctx, contactID, vcardpkg.ToAddresses(contactID, p.Addresses)); err != nil {
-		return fmt.Errorf("replace addresses: %w", err)
-	}
-	if err := s.contactRepo.ReplaceURLs(ctx, contactID, vcardpkg.ToURLs(contactID, p.URLs)); err != nil {
-		return fmt.Errorf("replace urls: %w", err)
-	}
-	if err := s.contactRepo.ReplaceIMs(ctx, contactID, vcardpkg.ToIMs(contactID, p.IMs)); err != nil {
-		return fmt.Errorf("replace ims: %w", err)
-	}
-	if err := s.contactRepo.ReplaceCategories(ctx, contactID, vcardpkg.ToCategories(contactID, p.Categories)); err != nil {
-		return fmt.Errorf("replace categories: %w", err)
-	}
-	if err := s.contactRepo.ReplaceDates(ctx, contactID, vcardpkg.ToDates(contactID, p.Dates)); err != nil {
-		return fmt.Errorf("replace dates: %w", err)
-	}
-	return nil
 }
 
 func generateETag(data string) string {

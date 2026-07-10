@@ -151,3 +151,19 @@ func ToDates(contactID string, dates []Date) []*domain.ContactDate {
 	}
 	return out
 }
+
+// ChildRecordsFor converts a parsed vCard into the child rows for a contact.
+func ChildRecordsFor(contactID string, p *ParsedContact) domain.ChildRecords {
+	if p == nil {
+		return domain.ChildRecords{}
+	}
+	return domain.ChildRecords{
+		Emails:     ToEmails(contactID, p.Emails),
+		Phones:     ToPhones(contactID, p.Phones),
+		Addresses:  ToAddresses(contactID, p.Addresses),
+		URLs:       ToURLs(contactID, p.URLs),
+		IMs:        ToIMs(contactID, p.IMs),
+		Categories: ToCategories(contactID, p.Categories),
+		Dates:      ToDates(contactID, p.Dates),
+	}
+}

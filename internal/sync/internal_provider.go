@@ -13,29 +13,6 @@ import (
 	vcardpkg "github.com/gumeniukcom/contactshq/internal/vcard"
 )
 
-// writeChildRecords writes multi-value child records for a contact.
-func writeChildRecords(ctx context.Context, repo repository.ContactRepository, contactID string, p *vcardpkg.ParsedContact) error {
-	if err := repo.ReplaceEmails(ctx, contactID, vcardpkg.ToEmails(contactID, p.Emails)); err != nil {
-		return err
-	}
-	if err := repo.ReplacePhones(ctx, contactID, vcardpkg.ToPhones(contactID, p.Phones)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceAddresses(ctx, contactID, vcardpkg.ToAddresses(contactID, p.Addresses)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceURLs(ctx, contactID, vcardpkg.ToURLs(contactID, p.URLs)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceIMs(ctx, contactID, vcardpkg.ToIMs(contactID, p.IMs)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceCategories(ctx, contactID, vcardpkg.ToCategories(contactID, p.Categories)); err != nil {
-		return err
-	}
-	return repo.ReplaceDates(ctx, contactID, vcardpkg.ToDates(contactID, p.Dates))
-}
-
 type InternalProvider struct {
 	contactRepo repository.ContactRepository
 	abRepo      repository.AddressBookRepository
@@ -127,13 +104,8 @@ func (p *InternalProvider) Put(ctx context.Context, item SyncItem) (PutResult, e
 		existing.ETag = etag
 		existing.UpdatedAt = now
 		vcardpkg.ApplyToContact(existing, parsed)
-		if err := p.contactRepo.Update(ctx, existing); err != nil {
-			return PutResult{}, err
-		}
-		// A failed child write leaves the contact absent from search and filters, so it
-		// must surface rather than be discarded.
-		if err := writeChildRecords(ctx, p.contactRepo, existing.ID, parsed); err != nil {
-			return PutResult{}, fmt.Errorf("write child records for %s: %w", existing.ID, err)
+		if err := p.contactRepo.Save(ctx, existing, vcardpkg.ChildRecordsFor(existing.ID, parsed)); err != nil {
+			return PutResult{}, fmt.Errorf("save contact %s: %w", existing.ID, err)
 		}
 		return PutResult{RemoteID: existing.UID, ETag: etag}, nil
 	}
@@ -154,11 +126,8 @@ func (p *InternalProvider) Put(ctx context.Context, item SyncItem) (PutResult, e
 	}
 	vcardpkg.ApplyToContact(contact, parsed)
 
-	if err := p.contactRepo.Create(ctx, contact); err != nil {
-		return PutResult{}, err
-	}
-	if err := writeChildRecords(ctx, p.contactRepo, contact.ID, parsed); err != nil {
-		return PutResult{}, fmt.Errorf("write child records for %s: %w", contact.ID, err)
+	if err := p.contactRepo.Save(ctx, contact, vcardpkg.ChildRecordsFor(contact.ID, parsed)); err != nil {
+		return PutResult{}, fmt.Errorf("save contact %s: %w", contact.ID, err)
 	}
 
 	return PutResult{RemoteID: contact.UID, ETag: etag}, nil

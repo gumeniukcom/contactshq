@@ -71,11 +71,7 @@ func (s *ImporterService) ImportVCard(ctx context.Context, userID string, data s
 			existing.ETag = generateETag(card)
 			vcardpkg.ApplyToContact(existing, parsed)
 			existing.UpdatedAt = time.Now()
-			if err := s.contactRepo.Update(ctx, existing); err != nil {
-				result.Errors++
-				continue
-			}
-			if err := writeChildRecords(ctx, s.contactRepo, existing.ID, parsed); err != nil {
+			if err := s.contactRepo.Save(ctx, existing, vcardpkg.ChildRecordsFor(existing.ID, parsed)); err != nil {
 				result.Errors++
 				continue
 			}
@@ -95,11 +91,7 @@ func (s *ImporterService) ImportVCard(ctx context.Context, userID string, data s
 		}
 		vcardpkg.ApplyToContact(contact, parsed)
 
-		if err := s.contactRepo.Create(ctx, contact); err != nil {
-			result.Errors++
-			continue
-		}
-		if err := writeChildRecords(ctx, s.contactRepo, contact.ID, parsed); err != nil {
+		if err := s.contactRepo.Save(ctx, contact, vcardpkg.ChildRecordsFor(contact.ID, parsed)); err != nil {
 			result.Errors++
 			continue
 		}
@@ -167,11 +159,7 @@ func (s *ImporterService) ImportCSV(ctx context.Context, userID string, data str
 		}
 		vcardpkg.ApplyToContact(contact, p)
 
-		if err := s.contactRepo.Create(ctx, contact); err != nil {
-			result.Errors++
-			continue
-		}
-		if err := writeChildRecords(ctx, s.contactRepo, contact.ID, p); err != nil {
+		if err := s.contactRepo.Save(ctx, contact, vcardpkg.ChildRecordsFor(contact.ID, p)); err != nil {
 			result.Errors++
 			continue
 		}
@@ -179,30 +167,6 @@ func (s *ImporterService) ImportCSV(ctx context.Context, userID string, data str
 	}
 
 	return result, nil
-}
-
-// writeChildRecords writes multi-value child records for a contact.
-// It is a package-level helper shared by ImporterService and BackupService.
-func writeChildRecords(ctx context.Context, repo repository.ContactRepository, contactID string, p *vcardpkg.ParsedContact) error {
-	if err := repo.ReplaceEmails(ctx, contactID, vcardpkg.ToEmails(contactID, p.Emails)); err != nil {
-		return err
-	}
-	if err := repo.ReplacePhones(ctx, contactID, vcardpkg.ToPhones(contactID, p.Phones)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceAddresses(ctx, contactID, vcardpkg.ToAddresses(contactID, p.Addresses)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceURLs(ctx, contactID, vcardpkg.ToURLs(contactID, p.URLs)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceIMs(ctx, contactID, vcardpkg.ToIMs(contactID, p.IMs)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceCategories(ctx, contactID, vcardpkg.ToCategories(contactID, p.Categories)); err != nil {
-		return err
-	}
-	return repo.ReplaceDates(ctx, contactID, vcardpkg.ToDates(contactID, p.Dates))
 }
 
 func getCSVField(record []string, colMap map[string]int, names ...string) string {

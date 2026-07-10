@@ -316,11 +316,7 @@ func (s *BackupService) Restore(ctx context.Context, userID, backupID, mode stri
 			}
 		}
 
-		if err := s.contactRepo.Create(ctx, p.contact); err != nil {
-			result.Errors++
-			continue
-		}
-		if err := writeChildRecords(ctx, s.contactRepo, p.contact.ID, p.parsed); err != nil {
+		if err := s.contactRepo.Save(ctx, p.contact, vcardpkg.ChildRecordsFor(p.contact.ID, p.parsed)); err != nil {
 			result.Errors++
 			continue
 		}

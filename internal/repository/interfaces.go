@@ -48,6 +48,8 @@ type ContactRepository interface {
 	ReplaceDates(ctx context.Context, contactID string, rows []*domain.ContactDate) error
 
 	// Versions that also load child records
+	// Save writes a contact and all of its child rows atomically.
+	Save(ctx context.Context, contact *domain.Contact, children domain.ChildRecords) error
 	GetByIDWithRelations(ctx context.Context, id string) (*domain.Contact, error)
 	GetByUIDWithRelations(ctx context.Context, addressBookID, uid string) (*domain.Contact, error)
 	ListWithRelations(ctx context.Context, addressBookID string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error)

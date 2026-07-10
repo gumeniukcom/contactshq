@@ -143,8 +143,8 @@ func TestResolve_WritesResolvedVCardToContact(t *testing.T) {
 
 	// The repository holds the same pointer the service mutates, so asserting on its
 	// fields alone would pass even if nothing were ever persisted. Check the writes.
-	if contactRepo.updates != 1 {
-		t.Fatalf("contactRepo.Update called %d times, want 1 — the resolution was never persisted", contactRepo.updates)
+	if contactRepo.saves != 1 {
+		t.Fatalf("contactRepo.Save called %d times, want 1 — the resolution was never persisted", contactRepo.saves)
 	}
 	if _, ok := contactRepo.emailsWritten["contact-1"]; !ok {
 		t.Error("child records were not rewritten from the resolved vCard")
@@ -215,7 +215,7 @@ func TestResolve_RejectsAnotherUsersConflict(t *testing.T) {
 	if !errors.Is(err, service.ErrConflictForbidden) {
 		t.Fatalf("Resolve() = %v, want ErrConflictForbidden", err)
 	}
-	if contactRepo.updates != 0 {
+	if contactRepo.saves != 0 {
 		t.Error("contact must not be written for a forbidden request")
 	}
 }
@@ -279,7 +279,7 @@ func TestDismiss_MarksDismissedWithoutTouchingContact(t *testing.T) {
 	if conflictRepo.byID["c1"].Status != "dismissed" {
 		t.Errorf("Status = %q, want dismissed", conflictRepo.byID["c1"].Status)
 	}
-	if contactRepo.updates != 0 {
+	if contactRepo.saves != 0 {
 		t.Error("dismiss must not modify the contact")
 	}
 }

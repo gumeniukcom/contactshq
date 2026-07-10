@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"runtime/debug"
 	"sync"
 
 	"go.uber.org/zap"
@@ -66,14 +67,7 @@ func (w *GoroutineWorker) Start(ctx context.Context) error {
 				case <-ctx.Done():
 					return
 				case j := <-w.jobs:
-					handler, ok := w.handlers[j.jobType]
-					if !ok {
-						w.logger.Error("unknown job type", zap.Int("worker_id", id), zap.String("job_type", j.jobType))
-						continue
-					}
-					if err := handler(ctx, j.payload); err != nil {
-						w.logger.Error("job failed", zap.Int("worker_id", id), zap.String("job_type", j.jobType), zap.Error(err))
-					}
+					w.run(ctx, id, j)
 				}
 			}
 		}(i)
@@ -82,10 +76,51 @@ func (w *GoroutineWorker) Start(ctx context.Context) error {
 	return nil
 }
 
+// run executes one job. Handlers parse vCards and provider responses from outside the
+// system, and Fiber's recover middleware only covers HTTP handlers, so a panic in here
+// would otherwise take the whole server down.
+func (w *GoroutineWorker) run(ctx context.Context, workerID int, j job) {
+	handler, ok := w.handlers[j.jobType]
+	if !ok {
+		w.logger.Error("unknown job type", zap.Int("worker_id", workerID), zap.String("job_type", j.jobType))
+		return
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("job panicked",
+				zap.Int("worker_id", workerID),
+				zap.String("job_type", j.jobType),
+				zap.Any("panic", r),
+				zap.ByteString("stack", debug.Stack()),
+			)
+		}
+	}()
+
+	if err := handler(ctx, j.payload); err != nil {
+		w.logger.Error("job failed", zap.Int("worker_id", workerID), zap.String("job_type", j.jobType), zap.Error(err))
+	}
+}
+
+// Stop cancels the workers and waits for the job in flight to finish, then runs whatever
+// is still buffered. A scheduled backup enqueued moments before shutdown used to be
+// dropped without a trace.
 func (w *GoroutineWorker) Stop(ctx context.Context) error {
 	if w.cancel != nil {
 		w.cancel()
 	}
 	w.wg.Wait()
-	return nil
+
+	for {
+		// The caller bounds how long draining may take by the context it passes.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		select {
+		case j := <-w.jobs:
+			w.run(ctx, -1, j)
+		default:
+			return nil
+		}
+	}
 }

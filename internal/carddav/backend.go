@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/emersion/go-vcard"
+	"github.com/emersion/go-webdav"
 	"github.com/emersion/go-webdav/carddav"
 	"github.com/google/uuid"
 	"github.com/gumeniukcom/contactshq/internal/domain"
@@ -271,47 +273,73 @@ func (b *Backend) PutAddressObject(ctx context.Context, path string, card vcard.
 		return nil, err
 	}
 
-	if existing != nil {
-		existing.VCardData = vcardData
-		existing.ETag = etag
-		existing.UpdatedAt = now
-		chqvcard.ApplyToContact(existing, parsed)
-
-		if err := b.contactRepo.Update(ctx, existing); err != nil {
-			return nil, err
-		}
-		_ = writeChildRecords(ctx, b.contactRepo, existing.ID, parsed)
-
-		return &carddav.AddressObject{
-			Path:    path,
-			ModTime: now,
-			ETag:    `"` + etag + `"`,
-			Card:    card,
-		}, nil
-	}
-
-	contact := &domain.Contact{
-		ID:            uuid.New().String(),
-		AddressBookID: ab.ID,
-		UID:           uid,
-		ETag:          etag,
-		VCardData:     vcardData,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	}
-	chqvcard.ApplyToContact(contact, parsed)
-
-	if err := b.contactRepo.Create(ctx, contact); err != nil {
+	if err := checkPreconditions(opts, existing); err != nil {
 		return nil, err
 	}
-	_ = writeChildRecords(ctx, b.contactRepo, contact.ID, parsed)
+
+	contact := existing
+	if contact == nil {
+		contact = &domain.Contact{
+			ID:            uuid.New().String(),
+			AddressBookID: ab.ID,
+			UID:           uid,
+			CreatedAt:     now,
+		}
+	}
+	contact.VCardData = vcardData
+	contact.ETag = etag
+	contact.UpdatedAt = now
+	chqvcard.ApplyToContact(contact, parsed)
+
+	if err := b.contactRepo.Save(ctx, contact, chqvcard.ChildRecordsFor(contact.ID, parsed)); err != nil {
+		return nil, err
+	}
 
 	return &carddav.AddressObject{
 		Path:    path,
 		ModTime: now,
-		ETag:    `"` + etag + `"`,
-		Card:    card,
+		// Unquoted: go-webdav quotes the value when it writes the ETag header. Quoting
+		// it here produced a doubly-quoted, malformed header.
+		ETag: etag,
+		Card: card,
 	}, nil
+}
+
+// checkPreconditions enforces the If-Match and If-None-Match headers a CardDAV client
+// sends to guard against lost updates. Ignoring them meant two devices editing the same
+// contact would each overwrite the other without noticing.
+func checkPreconditions(opts *carddav.PutAddressObjectOptions, existing *domain.Contact) error {
+	if opts == nil {
+		return nil
+	}
+
+	// "If-None-Match: *" means create only — fail if the contact is already there.
+	if opts.IfNoneMatch.IsSet() {
+		if existing != nil {
+			return webdav.NewHTTPError(http.StatusPreconditionFailed,
+				fmt.Errorf("contact %s already exists", existing.UID))
+		}
+		return nil
+	}
+
+	if !opts.IfMatch.IsSet() {
+		return nil
+	}
+
+	// "If-Match" means update only, and only if the client saw the current version.
+	if existing == nil {
+		return webdav.NewHTTPError(http.StatusPreconditionFailed,
+			fmt.Errorf("contact does not exist"))
+	}
+	match, err := opts.IfMatch.MatchETag(existing.ETag)
+	if err != nil {
+		return webdav.NewHTTPError(http.StatusBadRequest, err)
+	}
+	if !match {
+		return webdav.NewHTTPError(http.StatusPreconditionFailed,
+			fmt.Errorf("contact %s was modified by someone else", existing.UID))
+	}
+	return nil
 }
 
 func (b *Backend) DeleteAddressObject(ctx context.Context, path string) error {
@@ -368,7 +396,7 @@ func contactToAddressObject(contact *domain.Contact, path string) (*carddav.Addr
 		Path:          path,
 		ModTime:       contact.UpdatedAt,
 		ContentLength: int64(len(contact.VCardData)),
-		ETag:          `"` + contact.ETag + `"`,
+		ETag:          contact.ETag,
 		Card:          card,
 	}, nil
 }
@@ -378,27 +406,4 @@ func cardToString(card vcard.Card) string {
 	enc := vcard.NewEncoder(&sb)
 	_ = enc.Encode(card)
 	return sb.String()
-}
-
-// writeChildRecords writes multi-value child records for a contact.
-func writeChildRecords(ctx context.Context, repo repository.ContactRepository, contactID string, p *chqvcard.ParsedContact) error {
-	if err := repo.ReplaceEmails(ctx, contactID, chqvcard.ToEmails(contactID, p.Emails)); err != nil {
-		return err
-	}
-	if err := repo.ReplacePhones(ctx, contactID, chqvcard.ToPhones(contactID, p.Phones)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceAddresses(ctx, contactID, chqvcard.ToAddresses(contactID, p.Addresses)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceURLs(ctx, contactID, chqvcard.ToURLs(contactID, p.URLs)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceIMs(ctx, contactID, chqvcard.ToIMs(contactID, p.IMs)); err != nil {
-		return err
-	}
-	if err := repo.ReplaceCategories(ctx, contactID, chqvcard.ToCategories(contactID, p.Categories)); err != nil {
-		return err
-	}
-	return repo.ReplaceDates(ctx, contactID, chqvcard.ToDates(contactID, p.Dates))
 }
