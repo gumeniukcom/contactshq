@@ -69,7 +69,7 @@ func (h *SyncJobHandler) Handle(ctx context.Context, payload json.RawMessage) er
 			cfg.Password = cred.Password
 			cfg.SkipTLSVerify = cred.SkipTLSVerify
 		}
-		remote, err := chqsync.NewCardDAVClientProviderWithOptions(cfg.Endpoint, cfg.Username, cfg.Password, cfg.SkipTLSVerify)
+		remote, err := chqsync.NewCardDAVClientProviderWithOptions(ctx, cfg.Endpoint, cfg.Username, cfg.Password, cfg.SkipTLSVerify)
 		if err != nil {
 			return fmt.Errorf("create carddav provider: %w", err)
 		}

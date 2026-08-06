@@ -654,6 +654,13 @@ func (e *Engine) pushPhase(ctx context.Context, userID, providerKey string, loca
 }
 
 func contentHash(data string) string {
+	return ContentHash(data)
+}
+
+// ContentHash is the fingerprint the engine compares to decide whether a card changed.
+// Exported so a repair command can recompute sync_states after the encoder changes; a second
+// implementation would silently disagree and make the engine resync everything.
+func ContentHash(data string) string {
 	h := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(h[:])
 }

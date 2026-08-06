@@ -135,6 +135,7 @@ import AppCard from '@/components/ui/AppCard.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import { formatDateTime } from '@/utils/date'
+import { formatDuration as formatRunDuration } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -194,9 +195,6 @@ function statusColor(status: string): 'green' | 'red' | 'gray' | 'blue' {
 }
 
 function formatDuration(run: SyncRun) {
-  if (!run.finished_at) return 'running…'
-  const ms = new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(1)}s`
+  return formatRunDuration(run.started_at, run.finished_at)
 }
 </script>

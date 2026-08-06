@@ -1,5 +1,12 @@
 import client from './client'
-import type { Contact, CreateContactInput, PotentialDuplicate, MergeInput, DedupSettings } from '@/types'
+import type {
+  Contact,
+  CreateContactInput,
+  PotentialDuplicate,
+  MergeInput,
+  DedupSettings,
+  ValueCandidate,
+} from '@/types'
 
 export interface ListContactsParams {
   limit?: number
@@ -74,6 +81,18 @@ export function listDuplicates(params?: { status?: string; limit?: number; offse
 
 export function countDuplicates() {
   return client.get<{ pending: number }>('/contacts/duplicates/count')
+}
+
+/**
+ * One pair with every value of both contacts.
+ *
+ * The list endpoint deliberately omits the child collections, so the merge screen has to ask
+ * for the pair by id rather than hunting for it in a page of results.
+ */
+export function getDuplicate(id: string) {
+  return client.get<{ duplicate: PotentialDuplicate; candidates: ValueCandidate[] }>(
+    `/contacts/duplicates/${encodeURIComponent(id)}`,
+  )
 }
 
 export function detectDuplicates() {

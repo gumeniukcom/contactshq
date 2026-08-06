@@ -47,6 +47,57 @@ func (r *BunContactRepository) Save(ctx context.Context, contact *domain.Contact
 		if err != nil {
 			return err
 		}
+		return saveWithin(ctx, tx, contact, children, seq)
+	})
+}
+
+// MergeInto writes the surviving contact and removes the merged-away one in a single
+// transaction.
+//
+// Doing it as two repository calls cannot be made atomic in this codebase — a service has no
+// way to span transactions — so a failure between them left an updated winner next to a loser
+// that should have been gone, which the next sync reads as two contacts again.
+//
+// The deletion also has to reach the change journal. Contact.Delete writes the tombstone
+// today; performing the delete here without one would mean CardDAV clients never learn the
+// card disappeared, and it would linger on every phone forever. Both changes share one
+// sequence number, so a sync-collection report spanning the merge returns exactly two
+// entries: the updated winner and the removed loser.
+func (r *BunContactRepository) MergeInto(ctx context.Context, winner *domain.Contact, children domain.ChildRecords, loserID string) error {
+	assignChildIDs(winner.ID, &children)
+
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		loser := new(domain.Contact)
+		err := tx.NewSelect().Model(loser).Where("id = ?", loserID).Scan(ctx)
+		if errors.Is(err, sql.ErrNoRows) {
+			loser = nil
+		} else if err != nil {
+			return err
+		}
+
+		seq, err := nextChangeSeq(ctx, tx, winner.AddressBookID)
+		if err != nil {
+			return err
+		}
+
+		if err := saveWithin(ctx, tx, winner, children, seq); err != nil {
+			return err
+		}
+
+		if loser == nil {
+			return nil
+		}
+		if _, err := tx.NewDelete().Model((*domain.Contact)(nil)).Where("id = ?", loserID).Exec(ctx); err != nil {
+			return err
+		}
+		return recordDeletions(ctx, tx, loser.AddressBookID, []string{loser.UID}, seq)
+	})
+}
+
+// saveWithin writes a contact and its child rows inside an existing transaction, at a
+// sequence number the caller has already reserved.
+func saveWithin(ctx context.Context, tx bun.Tx, contact *domain.Contact, children domain.ChildRecords, seq int64) error {
+	{
 		contact.ChangeSeq = seq
 
 		res, err := tx.NewUpdate().Model(contact).WherePK().Exec(ctx)
@@ -86,7 +137,7 @@ func (r *BunContactRepository) Save(ctx context.Context, contact *domain.Contact
 			return err
 		}
 		return replaceRowsIn(ctx, tx, contact.ID, "contact_dates", children.Dates)
-	})
+	}
 }
 
 // assignChildIDs fills in the primary keys and owner of every child row. SQLite has no

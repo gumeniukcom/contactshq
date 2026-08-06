@@ -84,7 +84,7 @@ func TestCardDAVIncremental_AgainstOwnServer(t *testing.T) {
 	t.Cleanup(httpServer.Close)
 
 	provider, err := chqsync.NewCardDAVClientProviderWithOptions(
-		httpServer.URL+prefix+"/"+email+"/addressbooks/contacts/", email, password, false)
+		ctx, httpServer.URL+prefix+"/"+email+"/addressbooks/contacts/", email, password, false)
 	require.NoError(t, err)
 
 	// Seed two contacts directly through the backend context.
@@ -168,7 +168,7 @@ func TestCardDAVIncremental_BadCursorIsExpired(t *testing.T) {
 	t.Cleanup(httpServer.Close)
 
 	provider, err := chqsync.NewCardDAVClientProviderWithOptions(
-		httpServer.URL+prefix+"/"+email+"/addressbooks/contacts/", email, password, false)
+		ctx, httpServer.URL+prefix+"/"+email+"/addressbooks/contacts/", email, password, false)
 	require.NoError(t, err)
 
 	_, err = provider.ListChanges(ctx, "urn:contactshq:sync:9999")

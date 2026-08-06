@@ -170,11 +170,22 @@ func (m *mockAddressBookRepo) Update(context.Context, *domain.AddressBook) error
 func (m *mockAddressBookRepo) Delete(context.Context, string) error              { return nil }
 
 func newEmptyAuthService() *AuthService {
+	return newAuthServiceWithRegistration(false)
+}
+
+// newOpenAuthService is for tests about something other than the sign-up policy — role
+// assignment, tokens — that still need to create more than one account through Register.
+func newOpenAuthService() *AuthService {
+	return newAuthServiceWithRegistration(true)
+}
+
+func newAuthServiceWithRegistration(allow bool) *AuthService {
 	repo := &mockUserRepo{byID: map[string]*domain.User{}, byEmail: map[string]*domain.User{}}
 	return NewAuthService(repo, &mockAddressBookRepo{}, config.AuthConfig{
-		JWTSecret:  "0123456789abcdef0123456789abcdef",
-		TokenTTL:   time.Hour,
-		RefreshTTL: 24 * time.Hour,
+		JWTSecret:         "0123456789abcdef0123456789abcdef",
+		TokenTTL:          time.Hour,
+		RefreshTTL:        24 * time.Hour,
+		AllowRegistration: allow,
 	})
 }
 
@@ -193,7 +204,7 @@ func TestRegister_FirstUserBecomesAdmin(t *testing.T) {
 }
 
 func TestRegister_SubsequentUsersAreNotAdmin(t *testing.T) {
-	svc := newEmptyAuthService()
+	svc := newOpenAuthService()
 	ctx := context.Background()
 
 	if _, err := svc.Register(ctx, "owner@example.com", "correct-horse", "Owner"); err != nil {

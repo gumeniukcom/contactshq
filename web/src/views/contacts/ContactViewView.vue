@@ -6,7 +6,12 @@
       <!-- Header -->
       <div class="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div class="flex items-center gap-4 min-w-0">
-          <ContactAvatar :contact="contact" size="lg" />
+          <ContactAvatar
+            :first-name="contact.first_name"
+            :last-name="contact.last_name"
+            :photo-uri="contact.photo_uri"
+            size="lg"
+          />
           <div class="min-w-0">
             <h1 class="text-2xl font-bold text-foreground truncate">{{ displayName }}</h1>
             <p v-if="subtitle" class="text-sm text-muted-foreground truncate">{{ subtitle }}</p>

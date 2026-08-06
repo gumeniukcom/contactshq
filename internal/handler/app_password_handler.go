@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gumeniukcom/contactshq/internal/service"
 )
@@ -30,6 +33,12 @@ func (h *AppPasswordHandler) Create(c *fiber.Ctx) error {
 
 	token, ap, err := h.svc.Create(c.Context(), userID, req.Label)
 	if err != nil {
+		if errors.Is(err, service.ErrTooManyAppPasswords) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error": fmt.Sprintf("at most %d app passwords per account — delete one first",
+					service.MaxAppPasswordsPerUser),
+			})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create app password"})
 	}
 

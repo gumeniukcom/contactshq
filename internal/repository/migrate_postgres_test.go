@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,24 +46,67 @@ func setupPostgres(t *testing.T) *bun.DB {
 	return db
 }
 
+// expectedTables is the full schema as it must exist after every migration has run.
+//
+// Adding a table means adding it here in the same PR. The assertion below compares sets in
+// both directions on purpose: a one-way "does it exist" loop silently tolerated five tables
+// that were never checked on PostgreSQL at all (potential_duplicates, user_backup_settings,
+// user_dedup_settings, sync_cursors, contact_tombstones).
+//
+// `jobs` is deliberately absent: migration 020 drops it.
+var expectedTables = []string{
+	"address_books",
+	"app_passwords",
+	"backup_runs",
+	"contact_addresses",
+	"contact_categories",
+	"contact_dates",
+	"contact_emails",
+	"contact_ims",
+	"contact_phones",
+	"contact_tombstones",
+	"contact_urls",
+	"contacts",
+	"merge_log",
+	"pipeline_steps",
+	"pipelines",
+	"potential_duplicates",
+	"provider_connections",
+	"schema_migrations",
+	"sync_conflicts",
+	"sync_cursors",
+	"sync_runs",
+	"sync_states",
+	"user_backup_settings",
+	"user_dedup_settings",
+	"users",
+}
+
 func TestPostgres_MigrateAppliesEverySchemaObject(t *testing.T) {
 	db := setupPostgres(t)
 	ctx := context.Background()
 
 	require.NoError(t, repository.Migrate(ctx, db))
 
-	for _, table := range []string{
-		"users", "address_books", "contacts", "contact_emails", "contact_phones",
-		"contact_addresses", "contact_urls", "contact_ims", "contact_categories",
-		"contact_dates", "sync_states", "sync_runs", "sync_conflicts", "pipelines",
-		"pipeline_steps", "provider_connections", "app_passwords",
-	} {
-		var exists bool
-		require.NoError(t, db.QueryRowContext(ctx,
-			"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=?)",
-			table).Scan(&exists))
-		assert.True(t, exists, "table %s is missing on PostgreSQL", table)
+	rows, err := db.QueryContext(ctx,
+		"SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+
+	var actual []string
+	for rows.Next() {
+		var name string
+		require.NoError(t, rows.Scan(&name))
+		actual = append(actual, name)
 	}
+	require.NoError(t, rows.Err())
+
+	sort.Strings(actual)
+	want := append([]string(nil), expectedTables...)
+	sort.Strings(want)
+
+	assert.Equal(t, want, actual,
+		"the PostgreSQL schema does not match expectedTables — a new table must be added to that list in the same PR")
 }
 
 func TestPostgres_MigrateIsIdempotent(t *testing.T) {
@@ -230,4 +275,77 @@ func TestPostgres_SyncCursorUpsert(t *testing.T) {
 	got, err := repo.Get(ctx, "u1", "google->internal")
 	require.NoError(t, err)
 	assert.Equal(t, "token-2", got, "the second Set must update, not insert a duplicate")
+}
+
+// merge_log is written on every merge and pruned by retention; ON CONFLICT-free but still
+// worth proving on PostgreSQL, since a table that only ever ran on SQLite is how the five
+// tables missing from expectedTables went unnoticed.
+func TestPostgres_MergeLogRoundTrip(t *testing.T) {
+	db := setupPostgres(t)
+	ctx := context.Background()
+	require.NoError(t, repository.Migrate(ctx, db))
+
+	_, err := db.NewInsert().Model(&domain.User{
+		ID: "u1", Email: "owner@example.com", PasswordHash: "x", Role: "admin",
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	repo := repository.NewBunMergeLogRepository(db)
+	require.NoError(t, repo.Create(ctx, &domain.MergeLogEntry{
+		ID: "m1", UserID: "u1", WinnerID: "w", LoserUID: "l", Resolution: "{}",
+		MergedAt: time.Now().AddDate(0, 0, -40),
+	}))
+	require.NoError(t, repo.Create(ctx, &domain.MergeLogEntry{
+		ID: "m2", UserID: "u1", WinnerID: "w", LoserUID: "l2", Resolution: "{}",
+	}))
+
+	entries, err := repo.ListByUser(ctx, "u1", 50)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+
+	removed, err := repo.DeleteOlderThan(ctx, time.Now().AddDate(0, 0, -30))
+	require.NoError(t, err)
+	require.Equal(t, 1, removed)
+}
+
+// ON CONFLICT with an explicit target behaves differently across databases; on PostgreSQL an
+// unnamed target lets the clause swallow a primary-key collision instead of the pair
+// collision it was written for. CI runs only TestPostgres* in this package, so without this
+// the whole insert path would be exercised on SQLite alone.
+func TestPostgresPotentialDuplicateUniqueIndex(t *testing.T) {
+	db := setupPostgres(t)
+	ctx := context.Background()
+	require.NoError(t, repository.Migrate(ctx, db))
+
+	_, err := db.NewInsert().Model(&domain.User{
+		ID: "u1", Email: "owner@example.com", PasswordHash: "x", Role: "admin",
+	}).Exec(ctx)
+	require.NoError(t, err)
+	_, err = db.NewInsert().Model(&domain.AddressBook{ID: "ab1", UserID: "u1", Name: "Contacts"}).Exec(ctx)
+	require.NoError(t, err)
+	for _, id := range []string{"a", "b"} {
+		_, err = db.NewInsert().Model(&domain.Contact{ID: id, AddressBookID: "ab1", UID: id}).Exec(ctx)
+		require.NoError(t, err)
+	}
+
+	repo := repository.NewBunPotentialDuplicateRepository(db)
+	pair := func(id string) *domain.PotentialDuplicate {
+		return &domain.PotentialDuplicate{
+			ID: id, UserID: "u1", ContactAID: "a", ContactBID: "b",
+			Score: 1.0, MatchReasons: "[]", Status: "pending", CreatedAt: time.Now(),
+		}
+	}
+
+	created, err := repo.CreateIfAbsent(ctx, pair("d1"))
+	require.NoError(t, err)
+	require.True(t, created)
+
+	// Same pair, different primary key: the pair index must reject it, quietly.
+	created, err = repo.CreateIfAbsent(ctx, pair("d2"))
+	require.NoError(t, err)
+	require.False(t, created, "the same pair must not be recorded twice")
+
+	_, total, err := repo.ListByUser(ctx, "u1", repository.StatusAll, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
 }

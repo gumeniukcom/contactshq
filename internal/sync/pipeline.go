@@ -182,14 +182,14 @@ func (o *PipelineOrchestrator) createProvider(ctx context.Context, userID, provi
 				if err != nil {
 					return nil, fmt.Errorf("carddav oauth http client: %w", err)
 				}
-				return NewCardDAVClientProviderWithHTTPClient(cred.Endpoint, httpClient)
+				return NewCardDAVClientProviderWithHTTPClient(ctx, cred.Endpoint, httpClient)
 			}
 			cfg.Endpoint = cred.Endpoint
 			cfg.Username = cred.Username
 			cfg.Password = cred.Password
 			cfg.SkipTLSVerify = cred.SkipTLSVerify
 		}
-		return NewCardDAVClientProviderWithOptions(cfg.Endpoint, cfg.Username, cfg.Password, cfg.SkipTLSVerify)
+		return NewCardDAVClientProviderWithOptions(ctx, cfg.Endpoint, cfg.Username, cfg.Password, cfg.SkipTLSVerify)
 
 	case "google":
 		var cfg providerConfig

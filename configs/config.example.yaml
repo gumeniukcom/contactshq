@@ -13,6 +13,12 @@ database:
   dsn: "contactshq.db"
 
 auth:
+  # Public sign-up at POST /auth/register. Off by default: creating the FIRST account is
+  # always allowed so a new instance can be bootstrapped, but after that an open endpoint
+  # hands an account to anyone who can reach the port. Administrators can always add users
+  # through POST /admin/users regardless of this setting.
+  # Env: CHQ_AUTH_ALLOW_REGISTRATION
+  allow_registration: false
   # Required, min 32 characters. Generate with: openssl rand -hex 32
   # The server refuses to start without it (or with a known placeholder value).
   # Can also be supplied via the CHQ_AUTH_JWT_SECRET environment variable.
@@ -32,6 +38,22 @@ carddav:
 backup:
   dir: "./backups"
   schedule: "0 2 * * *"
+  # Cap on the decompressed size a restore will read into memory. A gzip backup can expand
+  # by orders of magnitude, and a replace-restore deletes before it writes.
+  # Env: CHQ_BACKUP_MAX_RESTORE_BYTES
+  max_restore_bytes: 134217728 # 128 MiB
+
+merge:
+  # How long a record of a contact merge is kept. Each record holds a snapshot of the
+  # discarded card so a merge can be undone by hand, so this table grows with use.
+  # Env: CHQ_MERGE_LOG_RETENTION_DAYS
+  log_retention_days: 30
+
+sync:
+  # How long a record of a pipeline run is kept. Unlike backup history — about one row a day —
+  # this table gains a row per pipeline execution.
+  # Env: CHQ_SYNC_RUNS_RETENTION_DAYS
+  runs_retention_days: 90
 
 log:
   level: "info"

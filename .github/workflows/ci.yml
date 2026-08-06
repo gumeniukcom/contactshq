@@ -135,10 +135,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The build context ignores .gitignore, so a developer's real configs/config.yaml used
+      # to be baked into the image. Plant one and prove it does not survive the build.
+      - name: Plant a local config.yaml in the build context
+        run: |
+          printf 'auth:\n  jwt_secret: "leaked-secret-marker"\n' > configs/config.yaml
+
       # The release workflow is the first place a broken Dockerfile used to surface,
       # by which point the tag already exists.
       - name: Build image
         run: docker build -t contactshq:ci .
+
+      - name: Local config.yaml did not reach the image
+        run: |
+          docker run --rm --entrypoint sh contactshq:ci -c '! test -f /app/configs/config.yaml' \
+            || { echo "configs/config.yaml was baked into the image"; exit 1; }
+          docker run --rm --entrypoint sh contactshq:ci -c 'test -f /app/configs/config.example.yaml' \
+            || { echo "config.example.yaml is missing from the image"; exit 1; }
+
+      - name: Remove the planted config
+        run: rm -f configs/config.yaml
 
       - name: Start container
         run: |
@@ -169,3 +185,92 @@ jobs:
         run: |
           uid=$(docker exec chq id -u)
           [ "$uid" != "0" ] || { echo "container runs as root"; exit 1; }
+
+      # The supported way out of a forgotten password. Exercised here because it is the one
+      # path that runs the binary as something other than a server.
+      - name: set-password changes the password
+        run: |
+          printf 'replacement-password-42\n' \
+            | docker exec -i chq ./contactshq set-password ci@example.com --stdin
+
+          new=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"replacement-password-42"}')
+          [ "$new" = "200" ] || { echo "login with the new password returned $new"; exit 1; }
+
+          old=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"correct-horse-battery"}')
+          [ "$old" = "401" ] || { echo "login with the old password returned $old"; exit 1; }
+
+      - name: set-password reports a missing user
+        run: |
+          set +e
+          printf 'replacement-password-42\n' \
+            | docker exec -i chq ./contactshq set-password nobody@example.com --stdin
+          code=$?
+          set -e
+          [ "$code" = "3" ] || { echo "expected exit code 3 for an unknown user, got $code"; exit 1; }
+
+      - name: The password never reaches the process list or the logs
+        run: |
+          docker inspect chq | grep -q 'replacement-password-42' && { echo "password leaked into docker inspect"; exit 1; }
+          docker logs chq 2>&1 | grep -q 'replacement-password-42' && { echo "password leaked into the logs"; exit 1; }
+          exit 0
+
+      # The encoder fix, end to end: a list separator must survive import and export as a
+      # separator, not as an escaped comma that collapses two categories into one.
+      - name: vCard list separators survive a round trip
+        run: |
+          token=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"replacement-password-42"}' \
+            | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+          [ -n "$token" ] || { echo "could not obtain a token"; exit 1; }
+
+          curl -s -o /dev/null -X POST http://127.0.0.1:8080/api/v1/contacts \
+            -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            -d '{"first_name":"Grace","last_name":"Hopper","categories":["work","friends"],"photo_uri":"data:image/jpeg;base64,/9j/4AAQ"}'
+
+          export_body=$(curl -s http://127.0.0.1:8080/api/v1/export/vcard -H "Authorization: Bearer $token")
+          echo "$export_body" | grep -q 'CATEGORIES:work,friends' \
+            || { echo "categories were not exported as two items:"; echo "$export_body"; exit 1; }
+          echo "$export_body" | grep -q 'PHOTO:data:image/jpeg;base64,/9j/4AAQ' \
+            || { echo "the photo URI was escaped:"; echo "$export_body"; exit 1; }
+
+      # Backup history: a manual backup must be recorded, or "last successful backup" is a
+      # lie for anyone who backs up by hand.
+      - name: A manual backup is recorded in the history
+        run: |
+          token=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"replacement-password-42"}' \
+            | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+
+          curl -s -o /dev/null -X POST http://127.0.0.1:8080/api/v1/backup/create \
+            -H "Authorization: Bearer $token"
+
+          runs=$(curl -s http://127.0.0.1:8080/api/v1/backup/runs -H "Authorization: Bearer $token")
+          echo "$runs" | grep -q '"status":"completed"' \
+            || { echo "no completed run in the history:"; echo "$runs"; exit 1; }
+          echo "$runs" | grep -q '"trigger":"manual"' \
+            || { echo "the manual trigger was not recorded:"; echo "$runs"; exit 1; }
+
+          status=$(curl -s http://127.0.0.1:8080/api/v1/backup/status -H "Authorization: Bearer $token")
+          echo "$status" | grep -q '"last_success"' \
+            || { echo "no last_success in the status:"; echo "$status"; exit 1; }
+
+      - name: reencode-vcards is a dry run by default and refuses a half job
+        run: |
+          docker exec chq ./contactshq reencode-vcards | grep -q 'Dry run' \
+            || { echo "the default run was not a dry run"; exit 1; }
+
+          set +e
+          docker exec chq ./contactshq reencode-vcards --apply
+          code=$?
+          set -e
+          [ "$code" = "2" ] || { echo "--apply without --reconcile-sync-state returned $code, want 2"; exit 1; }
+
+          docker exec chq ./contactshq reencode-vcards --apply --reconcile-sync-state >/dev/null
+          docker exec chq ./contactshq reencode-vcards | grep -q '0 of' \
+            || { echo "a second pass still found work to do — the rewrite is not idempotent"; exit 1; }

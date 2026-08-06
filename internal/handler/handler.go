@@ -11,6 +11,7 @@ import (
 	chqsync "github.com/gumeniukcom/contactshq/internal/sync"
 	"github.com/gumeniukcom/contactshq/internal/worker"
 	"github.com/uptrace/bun"
+	"go.uber.org/zap"
 )
 
 // dbPingTimeout keeps a stalled database from turning the health endpoint into
@@ -35,6 +36,8 @@ type Services struct {
 	SyncConflictRepo  repository.SyncConflictRepository
 	ProviderConnRepo  repository.ProviderConnectionRepository
 	DupRepo           repository.PotentialDuplicateRepository
+	MergeLogRepo      repository.MergeLogRepository
+	BackupRunRepo     repository.BackupRunRepository
 	DupDetector       *service.DuplicateDetector
 	MergeService      *service.MergeService
 	DedupSettingsRepo repository.UserDedupSettingsRepository
@@ -45,6 +48,10 @@ type Services struct {
 
 	// DB backs the health check's connectivity probe.
 	DB *bun.DB
+
+	// Logger lets handlers record the cause behind a generic 5xx. Optional; nil becomes a
+	// no-op logger so tests need not supply one.
+	Logger *zap.Logger
 }
 
 func Register(app *fiber.App, svc Services) {
@@ -64,6 +71,9 @@ func Register(app *fiber.App, svc Services) {
 	auth.Post("/register", credentialLimit, authHandler.Register)
 	auth.Post("/login", credentialLimit, authHandler.Login)
 	auth.Post("/refresh", middleware.RateLimiter(middleware.RefreshRateLimit), authHandler.Refresh)
+	// Registered before the JWT barrier below: the login screen has no token yet and needs
+	// to know whether to render a sign-up form.
+	auth.Get("/config", authHandler.Config)
 
 	// Google OAuth2 callback (public — browser redirect from Google)
 	if svc.GoogleOAuth != nil {
@@ -91,14 +101,20 @@ func Register(app *fiber.App, svc Services) {
 
 	// Duplicate detection & merge (before /:id to avoid shadowing)
 	if svc.DupDetector != nil && svc.MergeService != nil && svc.DupRepo != nil {
-		dupHandler := NewDuplicateHandler(svc.DupDetector, svc.MergeService, svc.DupRepo, svc.DedupSettingsRepo, svc.Scheduler)
+		dupHandler := NewDuplicateHandler(svc.DupDetector, svc.MergeService, svc.DupRepo, svc.DedupSettingsRepo, svc.Scheduler).
+			WithMergeLog(svc.MergeLogRepo)
 		contacts.Get("/duplicates", dupHandler.List)
 		contacts.Get("/duplicates/count", dupHandler.Count)
 		contacts.Get("/duplicates/settings", dupHandler.GetSettings)
 		contacts.Put("/duplicates/settings", dupHandler.SaveSettings)
+		// Registered after the static paths above and before contacts.Get("/:id") below:
+		// Fiber matches in registration order, so "/duplicates/count" would otherwise be
+		// swallowed by "/duplicates/:id".
+		contacts.Get("/duplicates/:id", dupHandler.Get)
 		contacts.Post("/duplicates/detect", dupHandler.Detect)
 		contacts.Post("/duplicates/:id/dismiss", dupHandler.Dismiss)
 		contacts.Post("/merge", dupHandler.Merge)
+		contacts.Get("/merge-log", dupHandler.MergeLog)
 	}
 
 	contacts.Get("/:id", contactHandler.Get)
@@ -189,10 +205,13 @@ func Register(app *fiber.App, svc Services) {
 
 	// Backup
 	if svc.Backup != nil {
-		backupHandler := NewBackupHandler(svc.Backup, svc.Scheduler)
+		backupHandler := NewBackupHandler(svc.Backup, svc.Scheduler, svc.Logger).
+			WithRunRepo(svc.BackupRunRepo)
 		backup := protected.Group("/backup")
 		backup.Post("/create", backupHandler.Create)
 		backup.Get("/list", backupHandler.List)
+		backup.Get("/runs", backupHandler.Runs)
+		backup.Get("/status", backupHandler.Status)
 		backup.Get("/settings", backupHandler.GetSettings)
 		backup.Put("/settings", backupHandler.SaveSettings)
 		backup.Get("/download/:id", backupHandler.Download)
@@ -203,7 +222,9 @@ func Register(app *fiber.App, svc Services) {
 	// Admin
 	admin := protected.Group("/admin", middleware.AdminOnly())
 	admin.Get("/users", adminHandler.ListUsers)
-	admin.Post("/users", authHandler.Register)
+	// Not authHandler.Register: an administrator adding a user must not be blocked by the
+	// public sign-up policy.
+	admin.Post("/users", authHandler.AdminCreateUser)
 	admin.Put("/users/:id/role", adminHandler.UpdateUserRole)
 	admin.Delete("/users/:id", adminHandler.DeleteUser)
 
@@ -216,6 +237,12 @@ func Register(app *fiber.App, svc Services) {
 			"status":     "ok",
 			"version":    svc.Version,
 			"build_time": svc.BuildTime,
+		}
+
+		// Queue state was previously unobservable from outside the process: a backlog looked
+		// identical to an idle system.
+		if svc.Worker != nil {
+			body["queue_depth"] = svc.Worker.QueueDepth()
 		}
 
 		if svc.DB != nil {

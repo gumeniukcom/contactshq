@@ -9,10 +9,18 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-vcard"
+
 	"github.com/emersion/go-webdav/carddav"
+	vcardpkg "github.com/gumeniukcom/contactshq/internal/vcard"
 )
+
+// defaultHTTPTimeout caps every request to a remote CardDAV server. Without it a host that
+// accepts the connection and then goes silent parks a worker goroutine forever; the pool is
+// four goroutines wide, so four such syncs stop backups and dedup as well.
+const defaultHTTPTimeout = 30 * time.Second
 
 // basicAuthTransport injects HTTP Basic Auth into every request.
 type basicAuthTransport struct {
@@ -32,8 +40,26 @@ func (t *basicAuthTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 // NewCardDAVClientProviderWithHTTPClient creates a CardDAV provider with a pre-configured HTTP client.
 // This is used for OAuth2-authenticated CardDAV servers (e.g., Google CardDAV).
-func NewCardDAVClientProviderWithHTTPClient(endpoint string, httpClient *http.Client) (*CardDAVClientProvider, error) {
-	resolvedEndpoint, abPath, err := discoverAddressBook(httpClient, endpoint)
+func NewCardDAVClientProviderWithHTTPClient(ctx context.Context, endpoint string, httpClient *http.Client) (*CardDAVClientProvider, error) {
+	return newCardDAVClientProvider(ctx, endpoint, withTimeout(httpClient))
+}
+
+// withTimeout returns a client that is guaranteed to have a request deadline. The caller may
+// own the client (an OAuth2 one, say), so a copy is timed out rather than the original.
+func withTimeout(c *http.Client) *http.Client {
+	if c.Timeout > 0 {
+		return c
+	}
+	clone := *c
+	clone.Timeout = defaultHTTPTimeout
+	return &clone
+}
+
+// newCardDAVClientProvider is the single place a provider is assembled. Both exported
+// constructors go through it: when they each built the struct themselves, one of them
+// silently omitted httpClient and baseURL and every conditional PUT nil-panicked.
+func newCardDAVClientProvider(ctx context.Context, endpoint string, httpClient *http.Client) (*CardDAVClientProvider, error) {
+	resolvedEndpoint, abPath, err := discoverAddressBook(ctx, httpClient, endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -47,6 +73,7 @@ func NewCardDAVClientProviderWithHTTPClient(endpoint string, httpClient *http.Cl
 	if err != nil {
 		return nil, fmt.Errorf("parse endpoint: %w", err)
 	}
+
 	return &CardDAVClientProvider{
 		client:     client,
 		httpClient: httpClient,
@@ -64,11 +91,11 @@ type CardDAVClientProvider struct {
 	abPath     string
 }
 
-func NewCardDAVClientProvider(endpoint, username, password string) (*CardDAVClientProvider, error) {
-	return NewCardDAVClientProviderWithOptions(endpoint, username, password, false)
+func NewCardDAVClientProvider(ctx context.Context, endpoint, username, password string) (*CardDAVClientProvider, error) {
+	return NewCardDAVClientProviderWithOptions(ctx, endpoint, username, password, false)
 }
 
-func NewCardDAVClientProviderWithOptions(endpoint, username, password string, skipTLSVerify bool) (*CardDAVClientProvider, error) {
+func NewCardDAVClientProviderWithOptions(ctx context.Context, endpoint, username, password string, skipTLSVerify bool) (*CardDAVClientProvider, error) {
 	var base http.RoundTripper
 	if skipTLSVerify {
 		base = &http.Transport{
@@ -76,6 +103,7 @@ func NewCardDAVClientProviderWithOptions(endpoint, username, password string, sk
 		}
 	}
 	httpClient := &http.Client{
+		Timeout: defaultHTTPTimeout,
 		Transport: &basicAuthTransport{
 			username: username,
 			password: password,
@@ -83,22 +111,9 @@ func NewCardDAVClientProviderWithOptions(endpoint, username, password string, sk
 		},
 	}
 
-	resolvedEndpoint, abPath, err := discoverAddressBook(httpClient, endpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create final client pointing to the resolved base URL (may differ from original
-	// if .well-known redirected to a different host/path).
-	client, err := carddav.NewClient(httpClient, resolvedEndpoint)
-	if err != nil {
-		return nil, fmt.Errorf("create carddav client: %w", err)
-	}
-
-	return &CardDAVClientProvider{
-		client: client,
-		abPath: abPath,
-	}, nil
+	// The resolved endpoint may differ from the original when .well-known redirected to
+	// another host or path, so the provider is built from what discovery returned.
+	return newCardDAVClientProvider(ctx, endpoint, httpClient)
 }
 
 // discoverAddressBook tries multiple RFC 6764 strategies to find the address book path.
@@ -109,9 +124,7 @@ func NewCardDAVClientProviderWithOptions(endpoint, username, password string, sk
 //  2. .well-known/carddav (RFC 6764): HTTP GET follows the redirect, then run discovery on the final URL
 //  3. DNS SRV/TXT (RFC 6764 §11): carddav.DiscoverContextURL → discovery on returned URL
 //  4. Treat u.Path as a direct address book path (user provided a full address book URL)
-func discoverAddressBook(httpClient *http.Client, endpoint string) (resolvedEndpoint, abPath string, err error) {
-	ctx := context.Background()
-
+func discoverAddressBook(ctx context.Context, httpClient *http.Client, endpoint string) (resolvedEndpoint, abPath string, err error) {
 	u, parseErr := url.Parse(endpoint)
 	if parseErr != nil {
 		return "", "", fmt.Errorf("invalid endpoint URL: %w", parseErr)
@@ -124,7 +137,7 @@ func discoverAddressBook(httpClient *http.Client, endpoint string) (resolvedEndp
 
 	// Strategy 2: .well-known/carddav — use an HTTP GET so redirects are followed,
 	// then run full discovery at the final (redirected) URL.
-	if finalURL, e := resolveWellKnown(httpClient, u); e == nil {
+	if finalURL, e := resolveWellKnown(ctx, httpClient, u); e == nil {
 		if path, e2 := tryDiscoverFull(ctx, httpClient, finalURL); e2 == nil {
 			return finalURL, path, nil
 		}
@@ -150,9 +163,13 @@ func discoverAddressBook(httpClient *http.Client, endpoint string) (resolvedEndp
 
 // resolveWellKnown performs a plain HTTP GET to /.well-known/carddav on the given host.
 // The http.Client follows redirects automatically; we return the final request URL.
-func resolveWellKnown(httpClient *http.Client, u *url.URL) (string, error) {
+func resolveWellKnown(ctx context.Context, httpClient *http.Client, u *url.URL) (string, error) {
 	wellKnownURL := u.Scheme + "://" + u.Host + "/.well-known/carddav"
-	resp, err := httpClient.Get(wellKnownURL) //nolint:noctx // background discovery
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wellKnownURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -393,13 +410,6 @@ func (p *CardDAVClientProvider) Delete(ctx context.Context, remoteID string) err
 	return p.client.RemoveAll(ctx, path)
 }
 
-func cardToString(card vcard.Card) string {
-	var sb strings.Builder
-	enc := vcard.NewEncoder(&sb)
-	_ = enc.Encode(card)
-	return sb.String()
-}
-
 func getUID(card vcard.Card) string {
 	f := card.Get(vcard.FieldUID)
 	if f == nil {
@@ -414,4 +424,11 @@ func extractUIDFromPath(path string) string {
 		return ""
 	}
 	return strings.TrimSuffix(parts[len(parts)-1], ".vcf")
+}
+
+// cardToString delegates to the shared encoder. It used to be a local copy that called
+// go-vcard directly, which is how this package kept serialising photos with an escaped
+// comma after the bug was fixed in internal/vcard.
+func cardToString(card vcard.Card) string {
+	return vcardpkg.CardToString(card)
 }

@@ -92,6 +92,13 @@ const router = createRouter({
           component: () => import('@/views/credentials/CredentialsView.vue'),
         },
         {
+          // The screen for connecting a CardDAV provider directly. It existed with no route
+          // at all, which made every /sync/providers endpoint unreachable from the UI.
+          path: 'sync',
+          name: 'sync',
+          component: () => import('@/views/sync/SyncView.vue'),
+        },
+        {
           path: 'sync/conflicts',
           name: 'sync-conflicts',
           component: () => import('@/views/sync/SyncConflictsView.vue'),

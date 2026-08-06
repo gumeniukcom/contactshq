@@ -35,7 +35,9 @@ RUN adduser -D -u 10001 contactshq
 
 WORKDIR /app
 COPY --from=builder /app/contactshq .
-COPY --from=builder /app/configs ./configs
+# Only the template. Shipping the whole directory risks baking a real configs/config.yaml
+# into the image, which would leak its secret and quietly outrank the environment.
+COPY --from=builder /app/configs/config.example.yaml ./configs/
 # Migrations are embedded in the binary; there is nothing to copy.
 
 RUN mkdir -p /app/backups && chown -R contactshq:contactshq /app

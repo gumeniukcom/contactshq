@@ -20,4 +20,10 @@ type PotentialDuplicate struct {
 
 	ContactA *Contact `bun:"rel:belongs-to,join:contact_a_id=id" json:"contact_a,omitempty"`
 	ContactB *Contact `bun:"rel:belongs-to,join:contact_b_id=id" json:"contact_b,omitempty"`
+
+	// BSubsetOfA reports that everything B holds is already on A, so keeping A loses
+	// nothing. Computed in the list query; absent (false) on single-pair reads, where the
+	// caller has the full values anyway.
+	BSubsetOfA bool `bun:"b_subset_of_a,scanonly" json:"b_subset_of_a"`
+	ASubsetOfB bool `bun:"a_subset_of_b,scanonly" json:"a_subset_of_b"`
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -49,6 +50,13 @@ var webdavMethods = []string{
 }
 
 func main() {
+	// Subcommands are dispatched before the server's own configuration is read: a
+	// `set-password` run must work on a deployment whose CHQ_AUTH_JWT_SECRET the operator
+	// does not have to hand, which is exactly the situation locked-out people are in.
+	if handled, code := runCLI(os.Args, os.Stdin, os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
@@ -73,6 +81,10 @@ func main() {
 		logger.Fatal("failed to run migrations", zap.Error(err))
 	}
 
+	// Recorded before anything else can open a new run, so "started before this process" is
+	// a clean cut.
+	processStartedAt := time.Now()
+
 	// Repositories
 	userRepo := repository.NewBunUserRepository(db)
 	abRepo := repository.NewBunAddressBookRepository(db)
@@ -96,10 +108,16 @@ func main() {
 	exporterService := service.NewExporterService(contactRepo, abRepo)
 	qrcodeService := service.NewQRCodeService()
 	pipelineService := service.NewPipelineService(pipelineRepo)
-	backupService := service.NewBackupService(contactRepo, abRepo, backupSettingsRepo, cfg.Backup.Dir, cfg.Backup.Schedule, 7).
-		WithSyncStateRepo(syncRepo)
+	backupRunRepo := repository.NewBunBackupRunRepository(db)
+	backupService := service.NewBackupService(contactRepo, abRepo, backupSettingsRepo, logger, cfg.Backup.Dir, cfg.Backup.Schedule, 7).
+		WithSyncStateRepo(syncRepo).
+		WithRunRepo(backupRunRepo).
+		WithMaxRestoreBytes(cfg.Backup.MaxRestoreBytes)
 	dupDetector := service.NewDuplicateDetector(contactRepo, abRepo, dupRepo, logger)
-	mergeService := service.NewMergeService(contactRepo, abRepo, dupRepo, syncRepo)
+	mergeLogRepo := repository.NewBunMergeLogRepository(db)
+	mergeService := service.NewMergeService(contactRepo, abRepo, dupRepo, syncRepo).
+		WithMergeLog(mergeLogRepo).
+		WithLogger(logger)
 
 	appPwService := service.NewAppPasswordService(appPwRepo)
 	syncConflictService := service.NewSyncConflictService(syncConflictRepo, syncRepo, contactRepo, abRepo)
@@ -117,7 +135,11 @@ func main() {
 	gWorker.Register("pipeline", jobs.NewPipelineJobHandler(orchestrator, pipelineRepo, logger).Handle)
 	gWorker.Register("backup", jobs.NewBackupJobHandler(backupService, logger).Handle)
 	gWorker.Register("sync", jobs.NewSyncJobHandler(syncEngine, contactRepo, abRepo, providerConnRepo, logger).Handle)
-	gWorker.Register("dedup", jobs.NewDedupJobHandler(dupDetector, logger).Handle)
+	gWorker.Register("dedup", jobs.NewDedupJobHandler(dupDetector, logger).
+		WithMergeLogRetention(mergeLogRepo, cfg.Merge.LogRetentionDays).Handle)
+	// Once at startup as well: an instance with no dedup schedule would otherwise never
+	// prune the merge history.
+	jobs.PruneMergeLog(ctx, mergeLogRepo, cfg.Merge.LogRetentionDays, logger)
 	if err := gWorker.Start(ctx); err != nil {
 		logger.Fatal("failed to start worker", zap.Error(err))
 	}
@@ -164,6 +186,15 @@ func main() {
 
 	sched.Start()
 
+	// History left open by a process that died, closed once at boot.
+	reconcileInterruptedRuns(ctx, backupRunRepo, syncRunRepo, processStartedAt, logger)
+	pruneSyncRuns(ctx, syncRunRepo, cfg.Sync.RunsRetentionDays, logger)
+
+	// A container killed overnight means the scheduled backup never happened and the next
+	// firing is a day away. This is the cheap half of a durable queue: the one job whose loss
+	// actually costs something gets a second chance at boot.
+	catchUpMissedBackups(ctx, userIDs, backupService, backupRunRepo, gWorker, logger)
+
 	// Fiber app.
 	//
 	// Fiber only routes methods listed in RequestMethods and answers 400 to anything
@@ -172,7 +203,7 @@ func main() {
 	fiberCfg := fiber.Config{
 		AppName:        "ContactsHQ",
 		BodyLimit:      10 * 1024 * 1024, // 10MB
-		ErrorHandler:   errorHandler,
+		ErrorHandler:   newErrorHandler(logger),
 		RequestMethods: append(fiber.DefaultMethods, webdavMethods...),
 	}
 	// Only believe X-Forwarded-For when the request actually came through a configured
@@ -210,6 +241,8 @@ func main() {
 		SyncConflictRepo:  syncConflictRepo,
 		ProviderConnRepo:  providerConnRepo,
 		DupRepo:           dupRepo,
+		MergeLogRepo:      mergeLogRepo,
+		BackupRunRepo:     backupRunRepo,
 		DupDetector:       dupDetector,
 		MergeService:      mergeService,
 		DedupSettingsRepo: dedupSettingsRepo,
@@ -218,6 +251,7 @@ func main() {
 		AppPassword:       appPwService,
 		SyncConflict:      syncConflictService,
 		DB:                db,
+		Logger:            logger,
 	})
 
 	// RFC 6764 — CardDAV service discovery
@@ -229,7 +263,16 @@ func main() {
 
 	// CardDAV server
 	davBackend := chqcarddav.NewBackend(userRepo, abRepo, contactRepo, davPrefix)
-	davServer := chqcarddav.NewServer(davBackend, userRepo, appPwRepo, davPrefix)
+	// The same proxy list Fiber uses: /dav is mounted through adaptor.HTTPHandler and sees a
+	// net/http request, so Fiber's own trusted-proxy handling never reaches it.
+	davServer := chqcarddav.NewServerWithTrustedProxies(
+		davBackend, userRepo, appPwRepo, davPrefix, cfg.Server.TrustedProxies)
+
+	// Wired here rather than at construction because the CardDAV server is built last. The
+	// services hold the callback, so a changed password or a deleted app password stops
+	// opening CardDAV immediately instead of after the verdict cache expires.
+	userService.WithCredentialInvalidator(davServer.InvalidateUser)
+	appPwService.WithCredentialInvalidator(userRepo, davServer.InvalidateUser)
 	app.Use(davPrefix, adaptor.HTTPHandler(davServer))
 
 	// Web UI (landing + SPA)
@@ -294,10 +337,31 @@ func logDatabaseLocation(logger *zap.Logger, cfg config.DatabaseConfig) {
 	logger.Info("database", fields...)
 }
 
-func errorHandler(c *fiber.Ctx, err error) error {
-	code := fiber.StatusInternalServerError
-	if e, ok := err.(*fiber.Error); ok {
-		code = e.Code
+// newErrorHandler renders an error to the client without disclosing what it was.
+//
+// A *fiber.Error carries a message this application chose, so it is safe to return. Anything
+// else is an internal failure — a driver error, a panic recovered by the framework — whose
+// text may name tables, paths or hosts. Those go to the log; the client gets a fixed string
+// and the form of the body stays {"error": "..."} because web/src/api/client.ts reads it.
+func newErrorHandler(logger *zap.Logger) fiber.ErrorHandler {
+	return func(c *fiber.Ctx, err error) error {
+		var fe *fiber.Error
+		if errors.As(err, &fe) {
+			return c.Status(fe.Code).JSON(fiber.Map{"error": fe.Message})
+		}
+
+		fields := []zap.Field{
+			zap.String("method", c.Method()),
+			zap.String("path", c.Path()),
+			zap.Error(err),
+		}
+		// Full request-id plumbing is a separate task; honour one if a proxy supplied it.
+		if rid := c.Get("X-Request-ID"); rid != "" {
+			fields = append(fields, zap.String("request_id", rid))
+		}
+		logger.Error("unhandled request error", fields...)
+
+		return c.Status(fiber.StatusInternalServerError).
+			JSON(fiber.Map{"error": "internal server error"})
 	}
-	return c.Status(code).JSON(fiber.Map{"error": err.Error()})
 }

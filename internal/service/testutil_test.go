@@ -15,9 +15,14 @@ type mockContactRepo struct {
 	byUID    map[string]*domain.Contact // key: addressBookID+":"+uid
 	updates  int                        // Update() call count
 	saves    int                        // Save() call count
+	// deleteAllCalls proves a replace-restore did not reach the destructive step when the
+	// backup was rejected.
+	deleteAllCalls int
 	// emailsWritten records the last child-row payload per contact, so tests can tell a
 	// persisted write apart from a mutation of the pointer they already hold.
 	emailsWritten map[string][]*domain.ContactEmail
+	// beforeListForDedup lets a test hold a scan open long enough to start a second one.
+	beforeListForDedup func()
 }
 
 // Save mirrors the repository: contact row and child rows land together.
@@ -27,6 +32,14 @@ func (m *mockContactRepo) Save(_ context.Context, c *domain.Contact, children do
 	m.byUID[c.AddressBookID+":"+c.UID] = c
 	m.emailsWritten[c.ID] = children.Emails
 	return nil
+}
+
+// MergeInto mirrors the repository: the winner is saved and the loser removed together.
+func (m *mockContactRepo) MergeInto(ctx context.Context, winner *domain.Contact, children domain.ChildRecords, loserID string) error {
+	if err := m.Save(ctx, winner, children); err != nil {
+		return err
+	}
+	return m.Delete(ctx, loserID)
 }
 
 func newMockContactRepo() *mockContactRepo {
@@ -103,6 +116,7 @@ func sortByName(contacts []*domain.Contact) []*domain.Contact {
 }
 
 func (m *mockContactRepo) DeleteAll(_ context.Context, abID string) error {
+	m.deleteAllCalls++
 	for id, c := range m.contacts {
 		if c.AddressBookID == abID {
 			delete(m.byUID, c.AddressBookID+":"+c.UID)
@@ -118,6 +132,13 @@ func (m *mockContactRepo) List(_ context.Context, _ string, _, _ int, _ reposito
 
 func (m *mockContactRepo) Search(_ context.Context, _, _ string, _, _ int, _ repository.ListFilters) ([]*domain.Contact, int, error) {
 	return nil, 0, nil
+}
+
+func (m *mockContactRepo) ListForDedup(ctx context.Context, abID string) ([]*domain.Contact, error) {
+	if m.beforeListForDedup != nil {
+		m.beforeListForDedup()
+	}
+	return m.ListAll(ctx, abID)
 }
 
 func (m *mockContactRepo) ListAll(_ context.Context, abID string) ([]*domain.Contact, error) {

@@ -20,3 +20,9 @@ linters:
       # Reaching through an embedded Field reads clearer than relying on promotion here.
       - linters: [staticcheck]
         text: 'QF1008'
+      # CLI output: a failed write to stdout/stderr leaves nothing useful to do — the channel
+      # for reporting it is the one that just failed — and the exit code still carries the
+      # result. Scoped to the command package so handler code stays covered.
+      - linters: [errcheck]
+        path: 'cmd/server/'
+        text: 'fmt\.Fprint(f|ln)?'

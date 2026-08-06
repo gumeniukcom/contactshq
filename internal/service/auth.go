@@ -22,6 +22,10 @@ var (
 	ErrEmailTaken         = errors.New("email already taken")
 	ErrUserNotFound       = errors.New("user not found")
 	ErrWrongTokenType     = errors.New("wrong token type")
+
+	// ErrRegistrationClosed reports a public sign-up attempt on an instance that does not
+	// accept them.
+	ErrRegistrationClosed = errors.New("registration is closed")
 )
 
 // User roles.
@@ -65,7 +69,36 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// Register creates an account through the public sign-up path.
+//
+// It is refused when the instance has an owner already and auth.allow_registration is off.
+// Creating the very first account is always allowed: that is how an instance is bootstrapped,
+// and closing it would leave a fresh deployment with no way in at all.
 func (s *AuthService) Register(ctx context.Context, email, password, displayName string) (*domain.User, error) {
+	return s.register(ctx, email, password, displayName, false)
+}
+
+// RegisterBypassPolicy creates an account regardless of auth.allow_registration. It backs the
+// admin "create user" endpoint, which already sits behind AdminOnly — an administrator adding
+// a colleague must keep working on an instance closed to public sign-up.
+func (s *AuthService) RegisterBypassPolicy(ctx context.Context, email, password, displayName string) (*domain.User, error) {
+	return s.register(ctx, email, password, displayName, true)
+}
+
+// RegistrationOpen reports whether the public sign-up path currently accepts an account. The
+// login screen asks so it can hide a form that would only ever return 403.
+func (s *AuthService) RegistrationOpen(ctx context.Context) (bool, error) {
+	if s.cfg.AllowRegistration {
+		return true, nil
+	}
+	_, total, err := s.userRepo.List(ctx, 1, 0)
+	if err != nil {
+		return false, fmt.Errorf("count users: %w", err)
+	}
+	return total == 0, nil
+}
+
+func (s *AuthService) register(ctx context.Context, email, password, displayName string, bypassPolicy bool) (*domain.User, error) {
 	existing, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, err
@@ -74,14 +107,25 @@ func (s *AuthService) Register(ctx context.Context, email, password, displayName
 		return nil, ErrEmailTaken
 	}
 
+	// One count answers both questions: whether this account may be created at all, and
+	// whether it is the first one and therefore the administrator.
+	_, total, err := s.userRepo.List(ctx, 1, 0)
+	if err != nil {
+		return nil, fmt.Errorf("count users: %w", err)
+	}
+
+	if total > 0 && !bypassPolicy && !s.cfg.AllowRegistration {
+		return nil, ErrRegistrationClosed
+	}
+
 	hash, err := hashPassword(password)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
-	role, err := s.roleForNewUser(ctx)
-	if err != nil {
-		return nil, err
+	role := RoleUser
+	if total == 0 {
+		role = RoleAdmin
 	}
 
 	now := time.Now()
@@ -113,23 +157,13 @@ func (s *AuthService) Register(ctx context.Context, email, password, displayName
 	return user, nil
 }
 
-// roleForNewUser makes the first account an administrator.
+// The first account becomes the administrator (see register).
 //
-// Nothing else in the system ever assigned the admin role, so the admin endpoints and the
-// admin-only UI were unreachable on every installation: the only way in was hand-editing
-// the database. Two registrations racing for the very first account could both come out
-// as admin; on a self-hosted instance whose first user is its owner, that is not a
+// Nothing else in the system ever assigns the admin role, so the admin endpoints and the
+// admin-only UI would otherwise be unreachable on every installation: the only way in was
+// hand-editing the database. Two registrations racing for the very first account could both
+// come out as admin; on a self-hosted instance whose first user is its owner, that is not a
 // meaningful exposure.
-func (s *AuthService) roleForNewUser(ctx context.Context) (string, error) {
-	_, total, err := s.userRepo.List(ctx, 1, 0)
-	if err != nil {
-		return "", fmt.Errorf("count users: %w", err)
-	}
-	if total == 0 {
-		return RoleAdmin, nil
-	}
-	return RoleUser, nil
-}
 
 func (s *AuthService) Login(ctx context.Context, email, password string) (*TokenPair, error) {
 	user, err := s.userRepo.GetByEmail(ctx, email)

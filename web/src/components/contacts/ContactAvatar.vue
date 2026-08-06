@@ -15,6 +15,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+// Takes the individual fields, not a Contact object: passing :contact="contact" type-checks
+// as nothing and silently renders "?" for every card.
 const props = withDefaults(
   defineProps<{
     firstName?: string

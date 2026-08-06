@@ -13,19 +13,31 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
+
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
 	vcardpkg "github.com/gumeniukcom/contactshq/internal/vcard"
 )
+
+// DefaultMaxRestoreBytes caps the decompressed size of a restored backup. A gzip stream can
+// expand by orders of magnitude, and restore reads the whole thing into memory.
+const DefaultMaxRestoreBytes int64 = 128 << 20
+
+// ErrBackupTooLarge reports a backup whose decompressed size exceeds the configured cap.
+var ErrBackupTooLarge = errors.New("backup exceeds the maximum restore size")
 
 type BackupService struct {
 	contactRepo      repository.ContactRepository
 	abRepo           repository.AddressBookRepository
 	settingsRepo     repository.UserBackupSettingsRepository
 	syncStateRepo    repository.SyncStateRepository // optional — may be nil
+	runRepo          repository.BackupRunRepository // optional — may be nil
+	logger           *zap.Logger
 	backupDir        string
 	defaultSchedule  string
 	defaultRetention int
+	maxRestoreBytes  int64
 }
 
 // WithSyncStateRepo lets a restore reconcile the sync state it invalidates.
@@ -34,10 +46,26 @@ func (s *BackupService) WithSyncStateRepo(repo repository.SyncStateRepository) *
 	return s
 }
 
+// WithRunRepo records every backup attempt. Optional: without it the service behaves exactly
+// as it did before the history existed.
+func (s *BackupService) WithRunRepo(repo repository.BackupRunRepository) *BackupService {
+	s.runRepo = repo
+	return s
+}
+
+// WithMaxRestoreBytes overrides the decompressed-size cap applied on restore.
+func (s *BackupService) WithMaxRestoreBytes(max int64) *BackupService {
+	if max > 0 {
+		s.maxRestoreBytes = max
+	}
+	return s
+}
+
 func NewBackupService(
 	contactRepo repository.ContactRepository,
 	abRepo repository.AddressBookRepository,
 	settingsRepo repository.UserBackupSettingsRepository,
+	logger *zap.Logger,
 	backupDir string,
 	defaultSchedule string,
 	defaultRetention int,
@@ -45,13 +73,18 @@ func NewBackupService(
 	if defaultRetention <= 0 {
 		defaultRetention = 7
 	}
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &BackupService{
 		contactRepo:      contactRepo,
 		abRepo:           abRepo,
 		settingsRepo:     settingsRepo,
+		logger:           logger,
 		backupDir:        backupDir,
 		defaultSchedule:  defaultSchedule,
 		defaultRetention: defaultRetention,
+		maxRestoreBytes:  DefaultMaxRestoreBytes,
 	}
 }
 
@@ -70,12 +103,85 @@ type RestoreResult struct {
 	Errors   int `json:"errors"`
 }
 
-// Create creates a new backup for the user. Compression and retention are
-// applied according to the user's backup settings.
+// Create creates a new backup for the user, recorded as a manual run.
 func (s *BackupService) Create(ctx context.Context, userID string) (*BackupInfo, error) {
+	return s.CreateWithTrigger(ctx, userID, domain.BackupTriggerManual)
+}
+
+// CreateWithTrigger creates a backup and records the attempt, whatever its outcome.
+//
+// The record is written here rather than in the scheduled job because the manual
+// POST /backup/create runs synchronously in the HTTP handler and would otherwise never reach
+// the history — which would make "last successful backup" systematically wrong for anyone who
+// backs up by hand.
+func (s *BackupService) CreateWithTrigger(ctx context.Context, userID, trigger string) (*BackupInfo, error) {
+	run := s.startRun(ctx, userID, trigger)
+
+	info, contactCount, err := s.createBackup(ctx, userID)
+	s.finishRun(run, info, contactCount, err)
+
+	return info, err
+}
+
+// startRun opens a history row. A failure to record is logged, not fatal: the backup itself
+// is what the user asked for.
+func (s *BackupService) startRun(ctx context.Context, userID, trigger string) *domain.BackupRun {
+	if s.runRepo == nil {
+		return nil
+	}
+	run := &domain.BackupRun{
+		ID:        uuid.New().String(),
+		UserID:    userID,
+		Trigger:   trigger,
+		Status:    domain.BackupRunRunning,
+		StartedAt: time.Now(),
+	}
+	if err := s.runRepo.Create(ctx, run); err != nil {
+		s.logger.Warn("failed to open a backup run record",
+			zap.String("user_id", userID), zap.Error(err))
+		return nil
+	}
+	return run
+}
+
+// finishRun closes the history row on a context of its own.
+//
+// Deliberately not the caller's context: during a graceful shutdown that one is already
+// cancelled by the time the backup returns, and the update would fail — leaving the row
+// "running" forever, which is the exact failure this table exists to make visible.
+func (s *BackupService) finishRun(run *domain.BackupRun, info *BackupInfo, contactCount int, cause error) {
+	if run == nil || s.runRepo == nil {
+		return
+	}
+
+	finished := time.Now()
+	run.FinishedAt = &finished
+	if cause != nil {
+		run.Status = domain.BackupRunFailed
+		run.ErrorMessage = cause.Error()
+	} else {
+		run.Status = domain.BackupRunOK
+		run.ContactCount = contactCount
+		if info != nil {
+			run.Filename = info.Filename
+			run.SizeBytes = info.Size
+			run.Compressed = strings.HasSuffix(info.Filename, ".gz")
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), 5*time.Second)
+	defer cancel()
+
+	if err := s.runRepo.Update(ctx, run); err != nil {
+		s.logger.Warn("failed to close a backup run record",
+			zap.String("user_id", run.UserID), zap.Error(err))
+	}
+}
+
+func (s *BackupService) createBackup(ctx context.Context, userID string) (*BackupInfo, int, error) {
 	ab, err := s.abRepo.GetOrCreateByUserID(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	settings, err := s.GetSettings(ctx, userID)
@@ -89,11 +195,11 @@ func (s *BackupService) Create(ctx context.Context, userID string) (*BackupInfo,
 
 	contacts, err := s.contactRepo.ListAll(ctx, ab.ID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := os.MkdirAll(filepath.Join(s.backupDir, userID), 0750); err != nil {
-		return nil, fmt.Errorf("create backup dir: %w", err)
+		return nil, 0, fmt.Errorf("create backup dir: %w", err)
 	}
 
 	// Use millisecond precision to prevent filename collisions.
@@ -107,12 +213,12 @@ func (s *BackupService) Create(ctx context.Context, userID string) (*BackupInfo,
 	fullPath := filepath.Join(s.backupDir, userID, filename)
 
 	if err := s.writeBackupFile(fullPath, contacts, settings.Compress); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	stat, err := os.Stat(fullPath)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	info := &BackupInfo{
@@ -122,20 +228,42 @@ func (s *BackupService) Create(ctx context.Context, userID string) (*BackupInfo,
 		CreatedAt: stat.ModTime(),
 	}
 
-	// Enforce retention policy after creating the new backup.
+	// Enforce retention policy after creating the new backup. A failure here does not
+	// invalidate the backup just written, so it is logged rather than returned — but it must
+	// not be silent, or the directory grows without bound with nobody the wiser.
 	if settings.Retention > 0 {
-		_ = s.applyRetention(ctx, userID, settings.Retention)
+		if err := s.applyRetention(ctx, userID, settings.Retention); err != nil {
+			s.logger.Warn("backup retention failed",
+				zap.String("user_id", userID),
+				zap.Int("retention", settings.Retention),
+				zap.Error(err))
+		}
 	}
 
-	return info, nil
+	return info, len(contacts), nil
 }
 
 // writeBackupFile writes all contact vCard data to path, optionally gzip-compressed.
-func (s *BackupService) writeBackupFile(path string, contacts []*domain.Contact, compress bool) error {
-	f, err := os.Create(path)
+//
+// The file is built under a temporary name and renamed into place only once it is complete,
+// because List and GetPath work off the directory listing: a half-written backup used to be
+// visible immediately, counted towards retention, and restorable — silently truncated.
+func (s *BackupService) writeBackupFile(path string, contacts []*domain.Contact, compress bool) (err error) {
+	tmpPath := path + ".tmp"
+
+	f, err := os.Create(tmpPath)
 	if err != nil {
 		return fmt.Errorf("create backup file: %w", err)
 	}
+
+	// Any failure past this point must leave nothing behind: a stray .tmp would otherwise
+	// accumulate in the user's directory forever.
+	defer func() {
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
 	var w io.Writer = f
 	var gzw *gzip.Writer
@@ -145,22 +273,32 @@ func (s *BackupService) writeBackupFile(path string, contacts []*domain.Contact,
 	}
 
 	for _, c := range contacts {
-		if _, err := io.WriteString(w, c.VCardData); err != nil {
+		if _, werr := io.WriteString(w, c.VCardData); werr != nil {
 			if gzw != nil {
 				_ = gzw.Close()
 			}
-			_ = f.Close()
-			return fmt.Errorf("write contact: %w", err)
+			err = fmt.Errorf("write contact: %w", werr)
+			return err
 		}
 	}
 
 	if gzw != nil {
-		if err := gzw.Close(); err != nil {
-			_ = f.Close()
-			return fmt.Errorf("flush gzip: %w", err)
+		if cerr := gzw.Close(); cerr != nil {
+			err = fmt.Errorf("flush gzip: %w", cerr)
+			return err
 		}
 	}
-	return f.Close()
+
+	if cerr := f.Close(); cerr != nil {
+		err = fmt.Errorf("close backup file: %w", cerr)
+		return err
+	}
+
+	if rerr := os.Rename(tmpPath, path); rerr != nil {
+		err = fmt.Errorf("publish backup file: %w", rerr)
+		return err
+	}
+	return nil
 }
 
 // List returns all backup files for the user, sorted newest first.
@@ -180,7 +318,7 @@ func (s *BackupService) List(ctx context.Context, userID string) ([]BackupInfo, 
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".vcf") && !strings.HasSuffix(name, ".vcf.gz") {
+		if !isBackupFilename(name) {
 			continue
 		}
 		info, err := entry.Info()
@@ -203,6 +341,13 @@ func (s *BackupService) List(ctx context.Context, userID string) ([]BackupInfo, 
 
 // GetPath returns the absolute path of a backup file after validating it belongs to the user.
 func (s *BackupService) GetPath(ctx context.Context, userID, backupID string) (string, error) {
+	// List already filters on this suffix; GetPath did not, so anything else that happened to
+	// sit in the user's directory — a stray .tmp, a note someone dropped there — was
+	// downloadable and deletable through the backup API.
+	if !isBackupFilename(backupID) {
+		return "", fmt.Errorf("invalid backup path")
+	}
+
 	fullPath := filepath.Join(s.backupDir, userID, backupID)
 
 	absPath, err := filepath.Abs(fullPath)
@@ -375,6 +520,11 @@ func (s *BackupService) reconcileSyncState(ctx context.Context, userID, addressB
 	return nil
 }
 
+// isBackupFilename reports whether a name is one this service would have written.
+func isBackupFilename(name string) bool {
+	return strings.HasSuffix(name, ".vcf") || strings.HasSuffix(name, ".vcf.gz")
+}
+
 // readBackupFile reads a backup file and decompresses it if it is gzip-encoded.
 func (s *BackupService) readBackupFile(path string) (string, error) {
 	f, err := os.Open(path)
@@ -393,9 +543,20 @@ func (s *BackupService) readBackupFile(path string) (string, error) {
 		r = gzr
 	}
 
-	data, err := io.ReadAll(r)
+	max := s.maxRestoreBytes
+	if max <= 0 {
+		max = DefaultMaxRestoreBytes
+	}
+
+	// Read one byte past the limit so an oversized backup is an error rather than a silent
+	// truncation: a replace-restore deletes the address book first, so a quietly truncated
+	// read would destroy contacts that the backup could no longer supply.
+	data, err := io.ReadAll(io.LimitReader(r, max+1))
 	if err != nil {
 		return "", fmt.Errorf("read backup data: %w", err)
+	}
+	if int64(len(data)) > max {
+		return "", fmt.Errorf("%w: over %d bytes decompressed", ErrBackupTooLarge, max)
 	}
 	return string(data), nil
 }
@@ -406,12 +567,17 @@ func (s *BackupService) applyRetention(ctx context.Context, userID string, maxCo
 	if err != nil || len(backups) <= maxCount {
 		return err
 	}
-	// List is sorted newest-first; delete from the tail.
+	// List is sorted newest-first; delete from the tail. Collect the failures instead of
+	// dropping them: a directory that cannot be pruned is exactly the condition an operator
+	// needs to hear about, and it is invisible from the outside.
+	var errs []error
 	for _, b := range backups[maxCount:] {
 		path := filepath.Join(s.backupDir, userID, b.ID)
-		_ = os.Remove(path)
+		if rerr := os.Remove(path); rerr != nil {
+			errs = append(errs, fmt.Errorf("remove %s: %w", b.ID, rerr))
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // GetSettings returns the backup settings for a user, falling back to defaults

@@ -39,8 +39,7 @@
         <select v-model="statusFilter" class="text-sm rounded-md border-input border px-3 py-2">
           <option value="pending">Pending</option>
           <option value="dismissed">Dismissed</option>
-          <option value="merged">Merged</option>
-          <option value="">All</option>
+          <option value="all">All</option>
         </select>
         <AppButton size="sm" variant="secondary" :loading="detecting" @click="runDetect">
           Scan now
@@ -85,9 +84,11 @@
             <span
               class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300"
             >
-              {{ Math.round(dup.score * 100) }}% match
+              {{ confidenceLabel(dup.score) }}
             </span>
-            <span class="text-xs text-muted-foreground">{{ parsedReasons(dup).join(', ') }}</span>
+            <span class="text-xs text-muted-foreground">{{
+              reasonLabels(dup.match_reasons).join(', ')
+            }}</span>
           </div>
           <div class="flex gap-3">
             <button
@@ -105,12 +106,12 @@
           <!-- Contact A -->
           <div class="p-4">
             <p class="text-xs font-semibold text-muted-foreground uppercase mb-2">Contact A</p>
-            <ContactSummary :contact="dup.contact_a" />
+            <DuplicateSummary :contact="dup.contact_a" />
           </div>
           <!-- Contact B -->
           <div class="p-4">
             <p class="text-xs font-semibold text-muted-foreground uppercase mb-2">Contact B</p>
-            <ContactSummary :contact="dup.contact_b" />
+            <DuplicateSummary :contact="dup.contact_b" />
           </div>
         </div>
 
@@ -119,10 +120,21 @@
           v-if="dup.status === 'pending' && dup.contact_a && dup.contact_b"
           class="px-4 py-3 border-t border-border bg-muted/50 flex gap-3"
         >
-          <AppButton size="sm" :loading="mergingId === dup.id + '_a'" @click="askMerge(dup, 'a')">
+          <!--
+            A quick merge acts without showing what it discards, so it is offered only when
+            the server has confirmed the other side holds nothing extra. Otherwise the only
+            way through is the screen that lists what would be lost.
+          -->
+          <AppButton
+            v-if="canKeepA(dup)"
+            size="sm"
+            :loading="mergingId === dup.id + '_a'"
+            @click="askMerge(dup, 'a')"
+          >
             Keep A
           </AppButton>
           <AppButton
+            v-if="canKeepB(dup)"
             size="sm"
             variant="secondary"
             :loading="mergingId === dup.id + '_b'"
@@ -130,6 +142,9 @@
           >
             Keep B
           </AppButton>
+          <span v-if="!canKeepA(dup) && !canKeepB(dup)" class="text-xs text-muted-foreground self-center">
+            Each record has something the other does not — review the differences.
+          </span>
           <RouterLink
             :to="{ name: 'contact-merge', params: { dupId: dup.id } }"
             class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md border border-input bg-card text-foreground hover:bg-muted/50"
@@ -164,7 +179,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, defineComponent, h } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
   listDuplicates,
@@ -174,8 +189,10 @@ import {
   getDedupSettings,
   saveDedupSettings,
 } from '@/api/contacts'
-import type { PotentialDuplicate, Contact, DedupSettings } from '@/types'
+import type { PotentialDuplicate, DedupSettings, DuplicateStatusFilter } from '@/types'
+import { canKeepA, canKeepB, confidenceLabel, reasonLabels } from '@/utils/duplicates'
 import AppButton from '@/components/ui/AppButton.vue'
+import DuplicateSummary from '@/components/contacts/DuplicateSummary.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import ScheduleInput from '@/components/ui/ScheduleInput.vue'
 import { DEDUP_PRESETS } from '@/utils/cron'
@@ -186,26 +203,6 @@ import { getApiError } from '@/api/client'
 const toast = useToast()
 
 // Inline ContactSummary component to avoid extra file
-const ContactSummary = defineComponent({
-  props: { contact: { type: Object as () => Contact, required: true } },
-  setup(props) {
-    return () =>
-      h(
-        'div',
-        { class: 'space-y-1 text-sm' },
-        [
-          h(
-            'p',
-            { class: 'font-medium text-foreground' },
-            [props.contact.first_name, props.contact.last_name].filter(Boolean).join(' ') || '(no name)',
-          ),
-          props.contact.email ? h('p', { class: 'text-muted-foreground' }, props.contact.email) : null,
-          props.contact.phone ? h('p', { class: 'text-muted-foreground' }, props.contact.phone) : null,
-          props.contact.org ? h('p', { class: 'text-muted-foreground text-xs' }, props.contact.org) : null,
-        ].filter(Boolean),
-      )
-  },
-})
 
 const loading = ref(false)
 const detecting = ref(false)
@@ -215,14 +212,16 @@ const total = ref(0)
 const limit = 20
 const offset = ref(0)
 const page = ref(0)
-const statusFilter = ref('pending')
+const statusFilter = ref<DuplicateStatusFilter>('pending')
 const mergingId = ref('')
 
 async function fetchDuplicates() {
   loading.value = true
   try {
     const { data } = await listDuplicates({
-      status: statusFilter.value || undefined,
+      // 'all' is the explicit "every status": an empty string used to be replaced by the
+      // server's default of 'pending', so the filter could never actually be cleared.
+      status: statusFilter.value,
       limit,
       offset: offset.value,
     })
@@ -297,7 +296,7 @@ async function quickMerge() {
   const loserId = keep === 'a' ? dup.contact_b_id : dup.contact_a_id
   mergingId.value = dup.id + '_' + keep
   try {
-    await mergeContacts({ winner_id: winnerId, loser_id: loserId, resolution: {} })
+    await mergeContacts({ winner_id: winnerId, loser_id: loserId, resolution: {}, dup_id: dup.id })
     toast.success('Contacts merged')
     mergeTarget.value = null
     fetchDuplicates()
@@ -305,14 +304,6 @@ async function quickMerge() {
     toast.error(getApiError(err, 'Failed to merge contacts'))
   } finally {
     mergingId.value = ''
-  }
-}
-
-function parsedReasons(dup: PotentialDuplicate): string[] {
-  try {
-    return JSON.parse(dup.match_reasons) as string[]
-  } catch {
-    return []
   }
 }
 

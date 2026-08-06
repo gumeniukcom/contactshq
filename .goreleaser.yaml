@@ -46,7 +46,8 @@ dockers:
       - "--label=org.opencontainers.image.source=https://github.com/gumeniukcom/contactshq"
       - "--label=org.opencontainers.image.licenses=Elastic-2.0"
     extra_files:
-      - configs/
+      # Template only — never the whole directory, which may hold a real config.yaml.
+      - configs/config.example.yaml
 
   - id: contactshq-arm64
     goos: linux
@@ -62,7 +63,8 @@ dockers:
       - "--label=org.opencontainers.image.source=https://github.com/gumeniukcom/contactshq"
       - "--label=org.opencontainers.image.licenses=Elastic-2.0"
     extra_files:
-      - configs/
+      # Template only — never the whole directory, which may hold a real config.yaml.
+      - configs/config.example.yaml
 
 docker_manifests:
   - name_template: "ghcr.io/gumeniukcom/contactshq:{{ .Tag }}"

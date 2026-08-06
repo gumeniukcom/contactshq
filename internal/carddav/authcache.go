@@ -3,6 +3,7 @@ package carddav
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"sync"
 	"time"
 )
@@ -81,6 +82,26 @@ func (c *authCache) put(key string, v authVerdict) {
 		}
 	}
 	c.entries[key] = v
+}
+
+// invalidateEmail drops every cached verdict for one account.
+//
+// Cache keys are email + SHA-256 of the presented password, so the entries for a given
+// account share the "email:" prefix and can be dropped without knowing any password.
+func (c *authCache) invalidateEmail(email string) {
+	if email == "" {
+		return
+	}
+	prefix := email + ":"
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for k := range c.entries {
+		if strings.HasPrefix(k, prefix) {
+			delete(c.entries, k)
+		}
+	}
 }
 
 func (c *authCache) evictExpiredLocked() {

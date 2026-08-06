@@ -401,9 +401,7 @@ func contactToAddressObject(contact *domain.Contact, path string) (*carddav.Addr
 	}, nil
 }
 
+// cardToString delegates to the shared encoder; see the note in internal/vcard/encoder.go.
 func cardToString(card vcard.Card) string {
-	var sb strings.Builder
-	enc := vcard.NewEncoder(&sb)
-	_ = enc.Encode(card)
-	return sb.String()
+	return chqvcard.CardToString(card)
 }

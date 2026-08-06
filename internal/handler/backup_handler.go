@@ -1,8 +1,13 @@
 package handler
 
 import (
+	"strconv"
+
 	"github.com/gofiber/fiber/v2"
+	"go.uber.org/zap"
+
 	"github.com/gumeniukcom/contactshq/internal/domain"
+	"github.com/gumeniukcom/contactshq/internal/repository"
 	"github.com/gumeniukcom/contactshq/internal/service"
 	"github.com/gumeniukcom/contactshq/internal/worker"
 )
@@ -10,16 +15,92 @@ import (
 type BackupHandler struct {
 	backupService *service.BackupService
 	scheduler     *worker.Scheduler
+	logger        *zap.Logger
+	runRepo       repository.BackupRunRepository
 }
 
-func NewBackupHandler(backupService *service.BackupService, scheduler *worker.Scheduler) *BackupHandler {
-	return &BackupHandler{backupService: backupService, scheduler: scheduler}
+func NewBackupHandler(backupService *service.BackupService, scheduler *worker.Scheduler, logger *zap.Logger) *BackupHandler {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	return &BackupHandler{backupService: backupService, scheduler: scheduler, logger: logger}
+}
+
+// WithRunRepo enables the history endpoints.
+func (h *BackupHandler) WithRunRepo(repo repository.BackupRunRepository) *BackupHandler {
+	h.runRepo = repo
+	return h
+}
+
+// maxBackupRunPageSize bounds a page of history.
+const maxBackupRunPageSize = 200
+
+// Runs returns the user's backup history, newest first.
+func (h *BackupHandler) Runs(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	if h.runRepo == nil {
+		return c.JSON(fiber.Map{"runs": []any{}})
+	}
+
+	limit, _ := strconv.Atoi(c.Query("limit", "50"))
+	if limit > maxBackupRunPageSize {
+		limit = maxBackupRunPageSize
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	runs, err := h.runRepo.ListByUser(c.Context(), userID, limit)
+	if err != nil {
+		h.logger.Error("failed to list backup runs", zap.String("user_id", userID), zap.Error(err))
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list backup runs"})
+	}
+	if runs == nil {
+		runs = []*domain.BackupRun{}
+	}
+	return c.JSON(fiber.Map{"runs": runs})
+}
+
+// Status answers "is my backup working?" in one request.
+//
+// Deliberately behind authentication and per user: /health is registered on the app rather
+// than under the JWT barrier, so putting any of this there would publish one user's backup
+// state to anyone who can reach the port.
+func (h *BackupHandler) Status(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	body := fiber.Map{"last_success": nil, "last_run": nil, "next_run": nil}
+
+	if h.runRepo != nil {
+		lastSuccess, err := h.runRepo.LastSuccess(c.Context(), userID)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read backup status"})
+		}
+		lastRun, err := h.runRepo.LastRun(c.Context(), userID)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read backup status"})
+		}
+		body["last_success"] = lastSuccess
+		body["last_run"] = lastRun
+	}
+
+	if h.scheduler != nil {
+		if next, ok := h.scheduler.NextBackupRun(userID); ok {
+			body["next_run"] = next
+		}
+	}
+
+	return c.JSON(body)
 }
 
 func (h *BackupHandler) Create(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
 	info, err := h.backupService.Create(c.Context(), userID)
 	if err != nil {
+		// The generic 500 stays, but the cause has to land somewhere: a manual backup that
+		// fails left no trace at all in the logs before this.
+		h.logger.Error("manual backup failed", zap.String("user_id", userID), zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create backup"})
 	}
 	return c.Status(fiber.StatusCreated).JSON(info)

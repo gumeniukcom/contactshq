@@ -163,6 +163,14 @@ func (m *mockSyncRunRepo) ListByPipeline(_ context.Context, _, pipelineID string
 	return result, nil
 }
 
+func (m *mockSyncRunRepo) MarkStaleInterrupted(context.Context, time.Time) (int, error) {
+	return 0, nil
+}
+
+func (m *mockSyncRunRepo) DeleteOlderThan(context.Context, time.Time) (int, error) {
+	return 0, nil
+}
+
 // verify mockSyncRunRepo implements repository.SyncRunRepository
 var _ repository.SyncRunRepository = (*mockSyncRunRepo)(nil)
 

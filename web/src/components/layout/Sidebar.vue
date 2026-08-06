@@ -41,6 +41,7 @@
       <NavLink to="/pipelines" icon="pipeline">Pipelines</NavLink>
       <NavLink to="/backup" icon="backup">Backup</NavLink>
       <NavLink to="/credentials" icon="key">Credentials</NavLink>
+      <NavLink to="/sync" icon="pipeline">Sync providers</NavLink>
       <NavLink to="/sync/conflicts" icon="conflict">
         Conflicts
         <span

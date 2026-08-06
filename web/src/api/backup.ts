@@ -1,5 +1,5 @@
 import client from './client'
-import type { BackupInfo, BackupSettings, RestoreResult } from '@/types'
+import type { BackupInfo, BackupRun, BackupSettings, BackupStatus, RestoreResult } from '@/types'
 
 export function createBackup() {
   return client.post<BackupInfo>('/backup/create')
@@ -27,4 +27,14 @@ export function getBackupSettings() {
 
 export function saveBackupSettings(data: BackupSettings) {
   return client.put<BackupSettings>('/backup/settings', data)
+}
+
+/** The user's backup history, newest first. */
+export function listBackupRuns(limit = 20) {
+  return client.get<{ runs: BackupRun[] }>('/backup/runs', { params: { limit } })
+}
+
+/** Last success, last attempt and the next scheduled run in one call. */
+export function getBackupStatus() {
+  return client.get<BackupStatus>('/backup/status')
 }

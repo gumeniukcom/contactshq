@@ -301,3 +301,18 @@ func (r *BunContactRepository) ListAll(ctx context.Context, addressBookID string
 		Scan(ctx)
 	return contacts, err
 }
+
+// ListForDedup returns only the columns duplicate detection compares.
+//
+// ListAll pulls every column, including vcard_data and photo_uri: on ten thousand contacts
+// that is tens of megabytes read and discarded, for a scan that looks at four fields.
+func (r *BunContactRepository) ListForDedup(ctx context.Context, addressBookID string) ([]*domain.Contact, error) {
+	var contacts []*domain.Contact
+	err := r.db.NewSelect().
+		Model(&contacts).
+		Column("id", "first_name", "last_name", "email", "phone").
+		Where("address_book_id = ?", addressBookID).
+		Order("id ASC").
+		Scan(ctx)
+	return contacts, err
+}

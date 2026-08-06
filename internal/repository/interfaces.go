@@ -39,6 +39,8 @@ type ContactRepository interface {
 	List(ctx context.Context, addressBookID string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error)
 	Search(ctx context.Context, addressBookID, query string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error)
 	ListAll(ctx context.Context, addressBookID string) ([]*domain.Contact, error)
+	// ListForDedup returns only the columns duplicate detection reads.
+	ListForDedup(ctx context.Context, addressBookID string) ([]*domain.Contact, error)
 
 	// Child-record management (delete-then-insert in a transaction)
 	ReplaceEmails(ctx context.Context, contactID string, rows []*domain.ContactEmail) error
@@ -58,6 +60,9 @@ type ContactRepository interface {
 
 	// Save writes a contact and all of its child rows atomically.
 	Save(ctx context.Context, contact *domain.Contact, children domain.ChildRecords) error
+	// MergeInto saves the surviving contact and deletes the merged-away one in one
+	// transaction, recording the deletion in the change journal.
+	MergeInto(ctx context.Context, winner *domain.Contact, children domain.ChildRecords, loserID string) error
 	GetByIDWithRelations(ctx context.Context, id string) (*domain.Contact, error)
 	GetByUIDWithRelations(ctx context.Context, addressBookID, uid string) (*domain.Contact, error)
 	ListWithRelations(ctx context.Context, addressBookID string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error)
@@ -111,11 +116,40 @@ type SyncRunRepository interface {
 	ListByUser(ctx context.Context, userID string, limit int) ([]*domain.SyncRun, error)
 	ListActiveByUser(ctx context.Context, userID string) ([]*domain.SyncRun, error)
 	ListByPipeline(ctx context.Context, userID, pipelineID string, limit int) ([]*domain.SyncRun, error)
+	// MarkStaleInterrupted closes runs orphaned by a process that died.
+	MarkStaleInterrupted(ctx context.Context, startedBefore time.Time) (int, error)
+	// DeleteOlderThan prunes history; sync_runs grows with every pipeline execution.
+	DeleteOlderThan(ctx context.Context, cutoff time.Time) (int, error)
+}
+
+// BackupRunRepository records what happened to each backup attempt. The files on disk cannot
+// answer that: retention deletes them.
+type BackupRunRepository interface {
+	Create(ctx context.Context, run *domain.BackupRun) error
+	Update(ctx context.Context, run *domain.BackupRun) error
+	ListByUser(ctx context.Context, userID string, limit int) ([]*domain.BackupRun, error)
+	LastSuccess(ctx context.Context, userID string) (*domain.BackupRun, error)
+	LastRun(ctx context.Context, userID string) (*domain.BackupRun, error)
+	// MarkStaleInterrupted closes runs left open by a process that died, bounded to those
+	// started before the given moment so a second instance's live runs are untouched.
+	MarkStaleInterrupted(ctx context.Context, startedBefore time.Time) (int, error)
+}
+
+// MergeLogRepository stores what a merge did, outliving the contacts it touched.
+type MergeLogRepository interface {
+	Create(ctx context.Context, entry *domain.MergeLogEntry) error
+	ListByUser(ctx context.Context, userID string, limit int) ([]*domain.MergeLogEntry, error)
+	DeleteOlderThan(ctx context.Context, cutoff time.Time) (int, error)
 }
 
 type PotentialDuplicateRepository interface {
 	Create(ctx context.Context, d *domain.PotentialDuplicate) error
+	// CreateIfAbsent inserts unless the pair is already recorded; the bool reports insertion.
+	CreateIfAbsent(ctx context.Context, d *domain.PotentialDuplicate) (bool, error)
 	GetByID(ctx context.Context, id string) (*domain.PotentialDuplicate, error)
+	// GetByIDWithContacts filters on ownership inside the query and loads both contacts
+	// with all of their child collections.
+	GetByIDWithContacts(ctx context.Context, userID, id string) (*domain.PotentialDuplicate, error)
 	ListByUser(ctx context.Context, userID, status string, limit, offset int) ([]*domain.PotentialDuplicate, int, error)
 	GetByContacts(ctx context.Context, userID, aID, bID string) (*domain.PotentialDuplicate, error)
 	Update(ctx context.Context, d *domain.PotentialDuplicate) error

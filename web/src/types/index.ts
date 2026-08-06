@@ -268,23 +268,65 @@ export interface PipelineStep {
   dest_config?: string
 }
 
+/** A merge is not a status a pair can hold: deleting the loser cascades the pair row away. */
+export type DuplicateStatus = 'pending' | 'dismissed'
+
+/** What the list filter may ask for. 'all' is the explicit "every status". */
+export type DuplicateStatusFilter = DuplicateStatus | 'all'
+
+/**
+ * Why the detector paired two contacts.
+ *
+ * Older rows hold a bare string[] (`["email_match"]`); rows written from task 4.5 onwards
+ * carry the matched value too, because "Same email: a@b.c" cannot be reconstructed on the
+ * client once a contact has more than one address. Readers must accept both.
+ */
+export interface MatchReason {
+  code: string
+  value?: string
+}
+
 export interface PotentialDuplicate {
   id: string
   user_id: string
   contact_a_id: string
   contact_b_id: string
   score: number
-  match_reasons: string // JSON-encoded string[]
-  status: 'pending' | 'dismissed' | 'merged'
+  /** JSON-encoded MatchReason[] or, on older rows, string[]. Parse with utils/duplicates. */
+  match_reasons: string
+  status: DuplicateStatus
   created_at: string
   contact_a?: Contact
   contact_b?: Contact
+  /** Everything B holds is already on A, so keeping A loses nothing. From the list query. */
+  b_subset_of_a?: boolean
+  a_subset_of_b?: boolean
 }
+
+/**
+ * One value offered as a merge choice. Ids are content hashes minted by the server; the
+ * client selects by id and never computes one.
+ */
+export interface ValueCandidate {
+  id: string
+  property: string
+  value: string
+  params?: Record<string, string>
+  /** 'both' when the identical value appears on each card. */
+  side: 'winner' | 'loser' | 'both'
+}
+
+/** vCard property name → ids of the values to keep. */
+export type MergeSelection = Record<string, string[]>
 
 export interface MergeInput {
   winner_id: string
   loser_id: string
-  resolution: Record<string, string> // vCard field → "winner" | "loser"
+  /** Whole-property form, used by the quick "keep this one" buttons. */
+  resolution?: Record<string, string>
+  /** Per-value form, used by the merge screen. Takes precedence when present. */
+  selection?: MergeSelection
+  dup_id?: string
 }
 
 export interface FieldDiff {
@@ -323,6 +365,27 @@ export interface BackupInfo {
   filename: string
   size: number
   created_at: string
+}
+
+/** One recorded attempt to create a backup. */
+export interface BackupRun {
+  id: string
+  user_id: string
+  trigger: 'manual' | 'scheduled' | 'catchup'
+  status: 'running' | 'completed' | 'failed' | 'interrupted'
+  filename?: string
+  size_bytes: number
+  contact_count: number
+  compressed: boolean
+  error_message?: string
+  started_at: string
+  finished_at?: string
+}
+
+export interface BackupStatus {
+  last_success: BackupRun | null
+  last_run: BackupRun | null
+  next_run: string | null
 }
 
 export interface BackupSettings {

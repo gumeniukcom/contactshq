@@ -2,6 +2,36 @@
   <div class="max-w-3xl space-y-6">
     <h1 class="text-2xl font-bold text-foreground">Backup</h1>
 
+    <!--
+      One honest line about whether backups are working. Without it a scheduled backup can
+      fail every night and nothing says so until the day it is needed.
+    -->
+    <div
+      class="rounded-lg border px-4 py-3"
+      :class="
+        health.alarming
+          ? 'border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10'
+          : 'border-border bg-muted/40'
+      "
+    >
+      <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span
+          class="text-sm font-semibold"
+          :class="health.alarming ? 'text-red-700 dark:text-red-400' : 'text-foreground'"
+        >
+          {{ healthTitle }}
+        </span>
+        <span class="text-sm text-muted-foreground">{{ health.summary }}</span>
+      </div>
+      <p v-if="lastSuccess" class="mt-1 text-xs text-muted-foreground">
+        Last successful backup {{ formatAgo(lastSuccess.started_at) }} ·
+        {{ formatSize(lastSuccess.size_bytes) }} · {{ lastSuccess.contact_count }} contacts
+      </p>
+      <p v-if="health.error" class="mt-1 text-xs text-red-700 dark:text-red-400 break-words">
+        {{ health.error }}
+      </p>
+    </div>
+
     <!-- Schedule Settings Card -->
     <AppCard>
       <h2 class="text-lg font-semibold text-foreground mb-4">Automatic Backup</h2>
@@ -28,6 +58,9 @@
             />
             <span class="text-sm text-muted-foreground">backups</span>
           </div>
+          <p v-if="settings.retention === 1" class="text-xs text-muted-foreground -mt-1">
+            Keeping 1 backup means the previous one is deleted as soon as a new one succeeds.
+          </p>
 
           <!-- Compress -->
           <label class="flex items-center gap-3 cursor-pointer">
@@ -166,6 +199,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   createBackup,
+  getBackupStatus,
   listBackups,
   downloadBackup,
   deleteBackup,
@@ -174,7 +208,9 @@ import {
   saveBackupSettings,
 } from '@/api/backup'
 import { formatDateTime } from '@/utils/date'
-import type { BackupInfo, BackupSettings, RestoreResult } from '@/types'
+import { formatAgo, formatSize } from '@/utils/format'
+import { backupHealth } from '@/utils/backup-health'
+import type { BackupInfo, BackupSettings, BackupStatus, RestoreResult } from '@/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppTable from '@/components/ui/AppTable.vue'
@@ -212,8 +248,13 @@ async function load() {
 async function handleCreate() {
   creating.value = true
   try {
-    await createBackup()
-    await load()
+    const { data } = await createBackup()
+    await Promise.all([load(), loadStatus()])
+    toast.success(`Backup created — ${formatSize(data.size)}`)
+  } catch (e) {
+    // Without this the request failed in total silence: no toast, no console, and the
+    // spinner simply stopped.
+    toast.error(getApiError(e, 'Backup failed'))
   } finally {
     creating.value = false
   }
@@ -327,15 +368,40 @@ async function handleSaveSettings() {
   }
 }
 
+// ── Backup health ──────────────────────────────────────────────────────────
+const status = ref<BackupStatus | null>(null)
+
+const lastSuccess = computed(() => status.value?.last_success ?? null)
+
+const health = computed(() =>
+  backupHealth(settings.value, status.value?.last_success, status.value?.last_run),
+)
+
+const HEALTH_TITLES: Record<string, string> = {
+  healthy: 'Backups are healthy',
+  failing: 'Backups are failing',
+  overdue: 'Backup overdue',
+  never: 'No backup yet',
+  disabled: 'Backups are off',
+}
+
+const healthTitle = computed(() => HEALTH_TITLES[health.value.status] ?? health.value.status)
+
+async function loadStatus() {
+  try {
+    const { data } = await getBackupStatus()
+    status.value = data
+  } catch {
+    // A missing status is not worth an error banner on a page that still works; the health
+    // line simply falls back to what the settings alone can say.
+    status.value = null
+  }
+}
+
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 onMounted(async () => {
-  await Promise.all([load(), loadSettings()])
+  await Promise.all([load(), loadSettings(), loadStatus()])
 })
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
-}
 </script>

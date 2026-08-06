@@ -1,0 +1,29 @@
+# The build context is not filtered by .gitignore: without this file the developer's own
+# configs/config.yaml — the one holding a real CHQ_AUTH_JWT_SECRET — is copied into the image
+# by `COPY . .`, where it both leaks the secret and silently overrides every value passed
+# through the environment (viper reads ./configs/config.yaml before it looks at env).
+configs/config.yaml
+.env
+.env.*
+
+# Version control and tooling metadata.
+.git
+.github
+.gitignore
+.claude
+.serena
+.goreleaser.yaml
+
+# Local build output. web/ itself must stay: the frontend stage builds from it and is what
+# produces internal/web/static/spa.
+web/node_modules
+web/dist
+contactshq
+dist/
+coverage.*
+
+# Local state that must never be baked into an image.
+backups/
+*.db
+*.db-shm
+*.db-wal

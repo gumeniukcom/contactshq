@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/emersion/go-webdav/carddav"
@@ -19,21 +21,51 @@ type Server struct {
 	userRepo  repository.UserRepository
 	appPwRepo repository.AppPasswordRepository
 	authCache *authCache
+	throttle  *authThrottle
+	trusted   *trustedProxySet
+
+	// argon2Slots bounds how many password verifications may run at once, capping peak
+	// memory at 64 MiB per slot no matter how many requests arrive.
+	argon2Slots chan struct{}
 }
 
 func NewServer(backend *Backend, userRepo repository.UserRepository, appPwRepo repository.AppPasswordRepository, prefix string) *Server {
+	return NewServerWithTrustedProxies(backend, userRepo, appPwRepo, prefix, nil)
+}
+
+// NewServerWithTrustedProxies is NewServer plus the proxy list used to attribute a request to
+// a client address. Without it, every client behind a reverse proxy shares one failure bucket.
+func NewServerWithTrustedProxies(
+	backend *Backend,
+	userRepo repository.UserRepository,
+	appPwRepo repository.AppPasswordRepository,
+	prefix string,
+	trustedProxies []string,
+) *Server {
 	handler := &carddav.Handler{
 		Backend: backend,
 		Prefix:  prefix,
 	}
 
 	return &Server{
-		handler:   handler,
-		backend:   backend,
-		userRepo:  userRepo,
-		appPwRepo: appPwRepo,
-		authCache: newAuthCache(),
+		handler:     handler,
+		backend:     backend,
+		userRepo:    userRepo,
+		appPwRepo:   appPwRepo,
+		authCache:   newAuthCache(),
+		throttle:    newAuthThrottle(),
+		trusted:     newTrustedProxySet(trustedProxies),
+		argon2Slots: make(chan struct{}, authArgon2Concurrency),
 	}
+}
+
+// InvalidateUser drops every cached authentication verdict for an account.
+//
+// Call it whenever a credential stops being valid — a changed password, a deleted app
+// password. Without it the old secret keeps opening CardDAV for up to authCachePositiveTTL,
+// which is five minutes of the user believing they revoked access when they had not.
+func (s *Server) InvalidateUser(email string) {
+	s.authCache.invalidateEmail(email)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +90,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	email, password := parts[0], parts[1]
 
-	verdict := s.authenticate(r.Context(), email, password)
+	verdict, throttled := s.authenticate(r.Context(), email, password, clientIP(r, s.trusted))
+	if throttled {
+		w.Header().Set("Retry-After", strconv.Itoa(int(authBlockDuration.Seconds())))
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
+	}
 	if !verdict.ok {
 		w.Header().Set("WWW-Authenticate", `Basic realm="ContactsHQ CardDAV"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -116,29 +153,56 @@ func isAddressBookPath(path, prefix, email string) bool {
 // authenticate verifies Basic-auth credentials, consulting the short-lived verdict
 // cache first. A cached positive keeps working until its TTL expires, so a password
 // change takes up to authCachePositiveTTL to lock out old CardDAV clients.
-func (s *Server) authenticate(ctx context.Context, email, password string) authVerdict {
+//
+// Order matters. A cached positive is answered before the throttle is even consulted, so a
+// client whose credentials work keeps working while some other address is blocked. Only then
+// is the failure counter checked, and only then is an argon2id slot taken.
+func (s *Server) authenticate(ctx context.Context, email, password, ip string) (verdict authVerdict, throttled bool) {
 	key := authCacheKey(email, password)
-	if v, ok := s.authCache.get(key); ok {
-		if v.ok {
-			// Refresh last-used bookkeeping is skipped on cache hits by design:
-			// it would defeat the point of not touching the DB per request.
-			return v
-		}
-		return authVerdict{}
+	cached, isCached := s.authCache.get(key)
+	if isCached && cached.ok {
+		// Refreshing last-used bookkeeping is skipped on cache hits by design:
+		// it would defeat the point of not touching the DB per request.
+		return cached, false
 	}
 
-	verdict := s.verifyCredentials(ctx, email, password)
-	s.authCache.put(key, verdict)
-	return verdict
+	if s.throttle.blocked(ip) {
+		return authVerdict{}, true
+	}
+
+	if isCached {
+		// A known-bad credential: cheap to answer, but it still counts as an attempt.
+		s.throttle.recordFailure(ip)
+		return authVerdict{}, false
+	}
+
+	v := s.verifyCredentials(ctx, email, password)
+	s.authCache.put(key, v)
+
+	if v.ok {
+		s.throttle.recordSuccess(ip)
+	} else {
+		s.throttle.recordFailure(ip)
+	}
+	return v, false
 }
 
 func (s *Server) verifyCredentials(ctx context.Context, email, password string) authVerdict {
+	// Everything past this point hashes; hold a slot for all of it, including the app
+	// password loop, which hashes once per stored password.
+	select {
+	case s.argon2Slots <- struct{}{}:
+		defer func() { <-s.argon2Slots }()
+	case <-ctx.Done():
+		return authVerdict{}
+	}
+
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil || user == nil {
 		return authVerdict{}
 	}
 
-	if !verifyArgon2id(password, user.PasswordHash) {
+	if !VerifyArgon2id(password, user.PasswordHash) {
 		// Fallback: try app-specific passwords
 		if !s.verifyAppPassword(ctx, user.ID, password) {
 			return authVerdict{}
@@ -148,6 +212,12 @@ func (s *Server) verifyCredentials(ctx context.Context, email, password string) 
 	return authVerdict{ok: true, userID: user.ID, userEmail: user.Email}
 }
 
+// verifyAppPassword tries every app password the account has.
+//
+// The loop is deliberately not capped: ListAllByUser returns rows in no particular order, so
+// truncating it at the creation limit would silently revoke access for whichever clients
+// happened to sort last on an account that already exceeded it. The cost is bounded by the
+// creation limit for new passwords and by the argon2 slot for everything else.
 func (s *Server) verifyAppPassword(ctx context.Context, userID, password string) bool {
 	if s.appPwRepo == nil {
 		return false
@@ -156,8 +226,21 @@ func (s *Server) verifyAppPassword(ctx context.Context, userID, password string)
 	if err != nil || len(passwords) == 0 {
 		return false
 	}
+
+	// Most-recently-used first, so the common case hashes once.
+	sort.SliceStable(passwords, func(i, j int) bool {
+		li, lj := passwords[i].LastUsedAt, passwords[j].LastUsedAt
+		if li == nil {
+			return false
+		}
+		if lj == nil {
+			return true
+		}
+		return li.After(*lj)
+	})
+
 	for _, ap := range passwords {
-		if verifyArgon2id(password, ap.PasswordHash) {
+		if VerifyArgon2id(password, ap.PasswordHash) {
 			_ = s.appPwRepo.UpdateLastUsed(ctx, ap.ID)
 			return true
 		}
@@ -165,7 +248,16 @@ func (s *Server) verifyAppPassword(ctx context.Context, userID, password string)
 	return false
 }
 
-func verifyArgon2id(password, encodedHash string) bool {
+// VerifyArgon2id checks a password against an encoded argon2id hash the way CardDAV
+// authentication does.
+//
+// It is exported so other packages can assert that a hash they write is one CardDAV will
+// accept. That matters because this is a second, independent implementation — service has its
+// own verifyPassword, and the two read the encoded parameters differently (this one derives
+// the key length from the stored hash, the other takes it from a constant). service cannot
+// import carddav, which is why the duplication exists at all; a hash accepted by only one of
+// them would let a user log in over HTTP but not sync, or the reverse.
+func VerifyArgon2id(password, encodedHash string) bool {
 	const prefix = "$argon2id$v=19$"
 	if !strings.HasPrefix(encodedHash, prefix) {
 		return false

@@ -37,6 +37,7 @@ var envBoundKeys = []string{
 	"auth.jwt_secret",
 	"auth.token_ttl",
 	"auth.refresh_ttl",
+	"auth.allow_registration",
 	"google.client_id",
 	"google.client_secret",
 	"google.redirect_url",
@@ -44,6 +45,9 @@ var envBoundKeys = []string{
 	"carddav.path_prefix",
 	"backup.dir",
 	"backup.schedule",
+	"backup.max_restore_bytes",
+	"merge.log_retention_days",
+	"sync.runs_retention_days",
 	"log.level",
 	"log.format",
 }
@@ -55,6 +59,8 @@ type Config struct {
 	Google   GoogleConfig   `mapstructure:"google"`
 	CardDAV  CardDAVConfig  `mapstructure:"carddav"`
 	Backup   BackupConfig   `mapstructure:"backup"`
+	Merge    MergeConfig    `mapstructure:"merge"`
+	Sync     SyncConfig     `mapstructure:"sync"`
 	Log      LogConfig      `mapstructure:"log"`
 }
 
@@ -78,6 +84,11 @@ type AuthConfig struct {
 	JWTSecret  string        `mapstructure:"jwt_secret"`
 	TokenTTL   time.Duration `mapstructure:"token_ttl"`
 	RefreshTTL time.Duration `mapstructure:"refresh_ttl"`
+
+	// AllowRegistration opens the public /auth/register endpoint to anyone who can reach the
+	// port. It defaults to false: creating the first account is always permitted so a fresh
+	// instance can be bootstrapped, but after that sign-up is an explicit choice.
+	AllowRegistration bool `mapstructure:"allow_registration"`
 }
 
 type GoogleConfig struct {
@@ -93,6 +104,24 @@ type CardDAVConfig struct {
 type BackupConfig struct {
 	Dir      string `mapstructure:"dir"`
 	Schedule string `mapstructure:"schedule"`
+
+	// MaxRestoreBytes caps the decompressed size a restore will read. A gzip backup can
+	// expand by orders of magnitude and restore holds the result in memory.
+	MaxRestoreBytes int64 `mapstructure:"max_restore_bytes"`
+}
+
+// MergeConfig governs the record kept of contact merges.
+type MergeConfig struct {
+	// LogRetentionDays bounds how long merge_log rows live. Each row keeps a snapshot of the
+	// discarded card, so without pruning the table grows by a contact per merge forever.
+	LogRetentionDays int `mapstructure:"log_retention_days"`
+}
+
+// SyncConfig governs the record kept of pipeline runs.
+type SyncConfig struct {
+	// RunsRetentionDays bounds how long sync_runs rows live. The table gains a row per
+	// pipeline execution, so unlike backup_runs it grows without bound.
+	RunsRetentionDays int `mapstructure:"runs_retention_days"`
 }
 
 type LogConfig struct {
@@ -100,7 +129,58 @@ type LogConfig struct {
 	Format string `mapstructure:"format"`
 }
 
+// setDefaults registers every default in one place. Kept separate from Load so a test can
+// assert that the set of known keys stays a subset of envBoundKeys: a key with a default but
+// no BindEnv is invisible to AutomaticEnv, which is how CHQ_AUTH_JWT_SECRET was once ignored.
+func setDefaults(v *viper.Viper) {
+	v.SetDefault("server.port", 8080)
+	v.SetDefault("server.host", "0.0.0.0")
+	v.SetDefault("database.driver", "sqlite")
+	v.SetDefault("database.dsn", "contactshq.db")
+	v.SetDefault("auth.token_ttl", "24h")
+	v.SetDefault("auth.refresh_ttl", "720h")
+	v.SetDefault("auth.allow_registration", false)
+	v.SetDefault("carddav.path_prefix", "/dav")
+	v.SetDefault("backup.dir", "./backups")
+	v.SetDefault("backup.schedule", "0 2 * * *")
+	v.SetDefault("backup.max_restore_bytes", 128<<20)
+	v.SetDefault("merge.log_retention_days", 30)
+	v.SetDefault("sync.runs_retention_days", 90)
+	v.SetDefault("log.level", "info")
+	v.SetDefault("log.format", "json")
+}
+
+// Load reads the configuration for serving traffic. It refuses anything the server must not
+// start with — most importantly a missing or guessable auth.jwt_secret.
 func Load() (*Config, error) {
+	cfg, err := load()
+	if err != nil {
+		return nil, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// LoadForCLI reads the same configuration for a subcommand that only touches the database.
+//
+// The full Validate is deliberately not relaxed for the server: refusing to start without a
+// real signing secret is load-bearing. But a `set-password` run signs no tokens, and an
+// operator recovering access to a deployment should not first have to reconstruct the secret
+// the running server holds in its environment.
+func LoadForCLI() (*Config, error) {
+	cfg, err := load()
+	if err != nil {
+		return nil, err
+	}
+	if err := cfg.Database.validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func load() (*Config, error) {
 	v := viper.New()
 
 	v.SetConfigName("config")
@@ -108,17 +188,7 @@ func Load() (*Config, error) {
 	v.AddConfigPath("./configs")
 	v.AddConfigPath(".")
 
-	v.SetDefault("server.port", 8080)
-	v.SetDefault("server.host", "0.0.0.0")
-	v.SetDefault("database.driver", "sqlite")
-	v.SetDefault("database.dsn", "contactshq.db")
-	v.SetDefault("auth.token_ttl", "24h")
-	v.SetDefault("auth.refresh_ttl", "720h")
-	v.SetDefault("carddav.path_prefix", "/dav")
-	v.SetDefault("backup.dir", "./backups")
-	v.SetDefault("backup.schedule", "0 2 * * *")
-	v.SetDefault("log.level", "info")
-	v.SetDefault("log.format", "json")
+	setDefaults(v)
 
 	v.SetEnvPrefix("CHQ")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -149,10 +219,6 @@ func Load() (*Config, error) {
 	// separate elements. Normalise both to a clean slice.
 	cfg.Server.TrustedProxies = splitList(cfg.Server.TrustedProxies)
 
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
 	return &cfg, nil
 }
 
@@ -170,12 +236,34 @@ func splitList(in []string) []string {
 	return out
 }
 
+// ErrInvalidDatabase flags a database section a command cannot work with.
+var ErrInvalidDatabase = errors.New("invalid database configuration")
+
 // Validate rejects configurations that are unsafe to serve traffic with.
+//
+// Auth comes first on purpose: a weak signing secret is the one misconfiguration that lets
+// anyone forge admin tokens, so it is the message an operator should see.
 func (c *Config) Validate() error {
 	if err := c.Auth.validate(); err != nil {
 		return err
 	}
-	return c.Server.validate()
+	if err := c.Server.validate(); err != nil {
+		return err
+	}
+	return c.Database.validate()
+}
+
+func (d DatabaseConfig) validate() error {
+	switch d.Driver {
+	case "sqlite", "postgres":
+	default:
+		return fmt.Errorf("%w: database.driver must be sqlite or postgres, got %q",
+			ErrInvalidDatabase, d.Driver)
+	}
+	if strings.TrimSpace(d.DSN) == "" {
+		return fmt.Errorf("%w: database.dsn is not set", ErrInvalidDatabase)
+	}
+	return nil
 }
 
 func (s ServerConfig) validate() error {

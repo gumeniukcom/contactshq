@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"errors"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/service"
 )
 
@@ -30,7 +32,21 @@ type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+// Register is the public sign-up endpoint; it honours auth.allow_registration.
 func (h *AuthHandler) Register(c *fiber.Ctx) error {
+	return h.register(c, h.authService.Register)
+}
+
+// AdminCreateUser backs POST /admin/users. It is the same flow with the sign-up policy
+// bypassed — the route already requires an administrator, so an instance closed to public
+// registration must still let its owner add people.
+func (h *AuthHandler) AdminCreateUser(c *fiber.Ctx) error {
+	return h.register(c, h.authService.RegisterBypassPolicy)
+}
+
+type registerFunc func(ctx context.Context, email, password, displayName string) (*domain.User, error)
+
+func (h *AuthHandler) register(c *fiber.Ctx, create registerFunc) error {
 	var req registerRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
@@ -44,10 +60,13 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "password must be at least 8 characters"})
 	}
 
-	user, err := h.authService.Register(c.Context(), req.Email, req.Password, req.DisplayName)
+	user, err := create(c.Context(), req.Email, req.Password, req.DisplayName)
 	if err != nil {
 		if errors.Is(err, service.ErrEmailTaken) {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "email already taken"})
+		}
+		if errors.Is(err, service.ErrRegistrationClosed) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "registration is closed"})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "registration failed"})
 	}
@@ -55,6 +74,16 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"user": user,
 	})
+}
+
+// Config is public and unauthenticated: the login screen reads it to decide whether to offer
+// a sign-up form at all.
+func (h *AuthHandler) Config(c *fiber.Ctx) error {
+	open, err := h.authService.RegistrationOpen(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read config"})
+	}
+	return c.JSON(fiber.Map{"registration_open": open})
 }
 
 func (h *AuthHandler) Login(c *fiber.Ctx) error {

@@ -1,167 +1,197 @@
 <template>
-  <div class="max-w-2xl">
+  <div class="max-w-4xl">
     <div class="flex items-center gap-3 mb-6">
       <RouterLink to="/contacts/duplicates" class="text-sm text-muted-foreground hover:text-foreground">
         ← Duplicates
       </RouterLink>
-      <h1 class="text-2xl font-bold text-foreground">Advanced Merge</h1>
+      <h1 class="text-2xl font-bold text-foreground">Merge contacts</h1>
     </div>
 
-    <div v-if="loading" class="py-8 text-center text-muted-foreground">Loading…</div>
-    <div v-else-if="!dup" class="py-8 text-center text-muted-foreground">Duplicate pair not found.</div>
+    <PageSpinner v-if="loading" />
 
-    <template v-else>
-      <!-- Score header -->
-      <div class="mb-4 flex items-center gap-3">
+    <!-- Gone: dismissed elsewhere, already merged, or never ours. Nothing to retry. -->
+    <AppCard v-else-if="notFound">
+      <div class="py-8 text-center space-y-3">
+        <p class="text-foreground font-medium">This pair no longer exists</p>
+        <p class="text-sm text-muted-foreground">It may have been merged or dismissed already.</p>
+        <AppButton size="sm" variant="secondary" @click="goBack">Back to duplicates</AppButton>
+      </div>
+    </AppCard>
+
+    <!-- Something went wrong on the way. Worth another attempt. -->
+    <AppCard v-else-if="loadError">
+      <div class="py-8 text-center space-y-3">
+        <p class="text-foreground font-medium">Could not load this pair</p>
+        <p class="text-sm text-muted-foreground">{{ loadError }}</p>
+        <AppButton size="sm" variant="secondary" :loading="loading" @click="fetchDup"> Retry </AppButton>
+      </div>
+    </AppCard>
+
+    <template v-else-if="dup && contactA && contactB">
+      <div class="mb-4 flex flex-wrap items-center gap-3">
         <span
           class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300"
         >
-          {{ Math.round(dup.score * 100) }}% match
+          {{ confidenceLabel(dup.score) }}
         </span>
-        <span class="text-xs text-muted-foreground">{{ parsedReasons.join(', ') }}</span>
+        <span class="text-xs text-muted-foreground">
+          {{ reasonLabels(dup.match_reasons).join(', ') }}
+        </span>
       </div>
 
-      <!-- Field-by-field picker -->
-      <div class="bg-card rounded-lg border border-border overflow-hidden mb-6">
+      <!-- Which record survives — an identity choice, kept separate from the values. -->
+      <AppCard class="mb-6">
+        <div class="mb-3">
+          <h2 class="text-sm font-semibold text-foreground">Which record survives</h2>
+          <p class="text-xs text-muted-foreground mt-1">
+            The surviving record keeps its identifier, so devices already syncing it stay linked. This does
+            not decide whose values are kept — choose those below.
+          </p>
+        </div>
         <div
-          class="grid grid-cols-3 bg-muted/50 border-b border-border text-xs font-semibold text-muted-foreground uppercase px-4 py-2"
+          class="border border-border rounded-lg overflow-hidden grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-border"
         >
-          <span>Field</span>
-          <span
-            >Contact A
-            <button class="ml-1 text-accent hover:underline" @click="keepAll('a')">Keep all A</button></span
-          >
-          <span
-            >Contact B
-            <button class="ml-1 text-accent hover:underline" @click="keepAll('b')">Keep all B</button></span
-          >
+          <MergeContactColumn :contact="contactA" side="a" :selected="winner === 'a'" @select="setWinner" />
+          <MergeContactColumn :contact="contactB" side="b" :selected="winner === 'b'" @select="setWinner" />
+        </div>
+      </AppCard>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="space-y-4">
+          <h2 class="text-sm font-semibold text-foreground">Values to keep</h2>
+          <MergeFieldGroup
+            v-for="group in model.groups"
+            :key="group.spec.property"
+            :group="group"
+            :selected="selection[group.spec.property] ?? []"
+            @update="(ids) => (selection[group.spec.property] = ids)"
+          />
+          <p v-if="!model.groups.length" class="text-sm text-muted-foreground">
+            These records hold no comparable values.
+          </p>
         </div>
 
-        <div
-          v-for="field in fields"
-          :key="field.key"
-          class="grid grid-cols-3 px-4 py-3 border-b border-border last:border-b-0 items-start"
-          :class="{ 'bg-yellow-50 dark:bg-yellow-500/10': field.differs }"
-        >
-          <span class="text-xs font-medium text-muted-foreground pt-0.5 capitalize">{{ field.label }}</span>
-
-          <!-- Contact A option -->
-          <label class="flex items-start gap-2 cursor-pointer">
-            <input
-              type="radio"
-              :name="field.key"
-              value="a"
-              v-model="resolution[field.key]"
-              class="mt-0.5 text-accent"
-            />
-            <span class="text-sm text-foreground break-all">{{ field.valueA || '—' }}</span>
-          </label>
-
-          <!-- Contact B option -->
-          <label class="flex items-start gap-2 cursor-pointer">
-            <input
-              type="radio"
-              :name="field.key"
-              value="b"
-              v-model="resolution[field.key]"
-              class="mt-0.5 text-accent"
-            />
-            <span class="text-sm text-foreground break-all">{{ field.valueB || '—' }}</span>
-          </label>
+        <div class="space-y-4">
+          <h2 class="text-sm font-semibold text-foreground">Result</h2>
+          <MergePreviewCard :preview="preview" :discarded="discarded" />
         </div>
       </div>
 
-      <!-- Actions -->
-      <div class="flex gap-3">
-        <AppButton :loading="merging" @click="doMerge">Merge contacts</AppButton>
-        <RouterLink
-          to="/contacts/duplicates"
-          class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md border border-input bg-card text-foreground hover:bg-muted/50"
-        >
-          Cancel
-        </RouterLink>
-      </div>
+      <p v-if="mergeError" class="mt-4 text-sm text-red-600 dark:text-red-400">{{ mergeError }}</p>
 
-      <p v-if="error" class="mt-3 text-sm text-destructive">{{ error }}</p>
+      <div class="mt-6 flex flex-wrap gap-3">
+        <AppButton :loading="merging" @click="confirming = true">Merge contacts</AppButton>
+        <AppButton variant="secondary" @click="goBack">Cancel</AppButton>
+      </div>
     </template>
+
+    <ConfirmDialog
+      :show="confirming"
+      title="Merge these contacts?"
+      :message="confirmMessage"
+      confirm-text="Merge"
+      confirm-variant="danger"
+      :loading="merging"
+      @confirm="doMerge"
+      @cancel="confirming = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter, RouterLink } from 'vue-router'
-import { listDuplicates, mergeContacts } from '@/api/contacts'
-import type { PotentialDuplicate, Contact } from '@/types'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { getDuplicate, mergeContacts } from '@/api/contacts'
+import { getApiError } from '@/api/client'
+import type { Contact, MergeSelection, PotentialDuplicate, ValueCandidate } from '@/types'
+import {
+  buildMergeModel,
+  buildMergePayload,
+  defaultSelection,
+  discardedBySelection,
+  previewFromSelection,
+  type MergeModel,
+} from '@/utils/merge'
+import { confidenceLabel, reasonLabels } from '@/utils/duplicates'
+import { useToast } from '@/composables/useToast'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppCard from '@/components/ui/AppCard.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import PageSpinner from '@/components/ui/PageSpinner.vue'
+import MergeContactColumn from '@/components/contacts/MergeContactColumn.vue'
+import MergeFieldGroup from '@/components/contacts/MergeFieldGroup.vue'
+import MergePreviewCard from '@/components/contacts/MergePreviewCard.vue'
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 
 const loading = ref(false)
 const merging = ref(false)
-const error = ref('')
+const confirming = ref(false)
+/** A pair that is gone is a different situation from a request that failed. */
+const notFound = ref(false)
+const loadError = ref('')
+const mergeError = ref('')
+
 const dup = ref<PotentialDuplicate | null>(null)
+const candidates = ref<ValueCandidate[]>([])
+const winner = ref<'a' | 'b'>('a')
+const selection = reactive<MergeSelection>({})
 
-const FIELD_LABELS: Record<string, string> = {
-  first_name: 'First name',
-  last_name: 'Last name',
-  email: 'Email',
-  phone: 'Phone',
-  org: 'Organisation',
-  title: 'Title',
-  note: 'Note',
-}
+const contactA = computed<Contact | null>(() => dup.value?.contact_a ?? null)
+const contactB = computed<Contact | null>(() => dup.value?.contact_b ?? null)
 
-interface FieldRow {
-  key: keyof Contact
-  label: string
-  valueA: string
-  valueB: string
-  differs: boolean
-}
+const model = computed<MergeModel>(() => buildMergeModel(candidates.value))
+const preview = computed(() => previewFromSelection(model.value, selection))
+const discarded = computed(() => discardedBySelection(model.value, selection))
 
-const fields = computed<FieldRow[]>(() => {
-  if (!dup.value?.contact_a || !dup.value?.contact_b) return []
-  const a = dup.value.contact_a
-  const b = dup.value.contact_b
-  return (Object.keys(FIELD_LABELS) as (keyof Contact)[]).map((key) => ({
-    key,
-    label: FIELD_LABELS[key as string],
-    valueA: (a[key] as string) || '',
-    valueB: (b[key] as string) || '',
-    differs: (a[key] as string) !== (b[key] as string),
-  }))
+const confirmMessage = computed(() => {
+  const kept = winner.value === 'a' ? contactA.value : contactB.value
+  const dropped = winner.value === 'a' ? contactB.value : contactA.value
+  const names = `"${nameOf(dropped)}" will be deleted and "${nameOf(kept)}" will remain`
+
+  if (!discarded.value.length) return `${names}. No values are lost.`
+  return `${names}. ${discarded.value.length} value(s) will be discarded.`
 })
 
-// resolution[fieldKey] = 'a' | 'b'
-const resolution = ref<Record<string, string>>({})
-
-function keepAll(side: 'a' | 'b') {
-  fields.value.forEach((f) => {
-    resolution.value[f.key as string] = side
-  })
+function nameOf(contact: Contact | null): string {
+  if (!contact) return 'this contact'
+  return [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.email || 'unnamed'
 }
 
-const parsedReasons = computed<string[]>(() => {
-  if (!dup.value) return []
-  try {
-    return JSON.parse(dup.value.match_reasons) as string[]
-  } catch {
-    return []
-  }
-})
+function resetSelection() {
+  for (const key of Object.keys(selection)) delete selection[key]
+  Object.assign(selection, defaultSelection(model.value, winner.value))
+}
+
+function setWinner(side: 'a' | 'b') {
+  winner.value = side
+}
+
+// Changing which record survives changes which single-valued defaults apply, so the
+// selection is rebuilt. Multi-valued groups keep everything either way.
+watch(winner, resetSelection)
 
 async function fetchDup() {
   loading.value = true
+  notFound.value = false
+  loadError.value = ''
+
   try {
-    const dupId = route.params.dupId as string
-    const { data } = await listDuplicates({ status: '', limit: 200, offset: 0 })
-    dup.value = data.duplicates.find((d) => d.id === dupId) ?? null
-    if (dup.value) {
-      // Default: pick A for all fields
-      fields.value.forEach((f) => {
-        resolution.value[f.key as string] = 'a'
-      })
+    // One request by id. The old view asked for a page of up to 200 pairs and searched it,
+    // which meant a pair outside that page simply could not be opened.
+    const { data } = await getDuplicate(route.params.dupId as string)
+    dup.value = data.duplicate
+    candidates.value = data.candidates ?? []
+    winner.value = 'a'
+    resetSelection()
+  } catch (e: unknown) {
+    const status = (e as { response?: { status?: number } })?.response?.status
+    if (status === 404 || status === 403) {
+      notFound.value = true
+    } else {
+      loadError.value = getApiError(e, 'Failed to load this pair')
     }
   } finally {
     loading.value = false
@@ -171,29 +201,32 @@ async function fetchDup() {
 async function doMerge() {
   if (!dup.value) return
   merging.value = true
-  error.value = ''
-
-  // Build winner/loser: majority vote of resolution map
-  const aCount = Object.values(resolution.value).filter((v) => v === 'a').length
-  const bCount = Object.values(resolution.value).filter((v) => v === 'b').length
-  const winnerId = aCount >= bCount ? dup.value.contact_a_id : dup.value.contact_b_id
-  const loserId = aCount >= bCount ? dup.value.contact_b_id : dup.value.contact_a_id
-
-  // Map field resolutions to winner/loser keys
-  const fieldResolution: Record<string, string> = {}
-  const winnerSide = aCount >= bCount ? 'a' : 'b'
-  fields.value.forEach((f) => {
-    fieldResolution[f.key as string] = resolution.value[f.key as string] === winnerSide ? 'winner' : 'loser'
-  })
+  mergeError.value = ''
 
   try {
-    await mergeContacts({ winner_id: winnerId, loser_id: loserId, resolution: fieldResolution })
+    await mergeContacts(
+      buildMergePayload({
+        dupId: dup.value.id,
+        contactAId: dup.value.contact_a_id,
+        contactBId: dup.value.contact_b_id,
+        winner: winner.value,
+        selection,
+      }),
+    )
+    toast.success('Contacts merged')
     router.push('/contacts/duplicates')
   } catch (e: unknown) {
-    error.value = (e as Error)?.message ?? 'Merge failed'
+    // Stay on the page with the selection intact: navigating away would make the user
+    // rebuild every choice to try again.
+    mergeError.value = getApiError(e, 'Failed to merge contacts')
+    confirming.value = false
   } finally {
     merging.value = false
   }
+}
+
+function goBack() {
+  router.push('/contacts/duplicates')
 }
 
 onMounted(fetchDup)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/gumeniukcom/contactshq/internal/domain"
@@ -209,4 +210,26 @@ func (s *Scheduler) Start() {
 // Stop shuts down the scheduler gracefully.
 func (s *Scheduler) Stop() {
 	_ = s.s.Shutdown()
+}
+
+// NextBackupRun reports when the user's next scheduled backup is due.
+//
+// Answering "when will it run again" from the scheduler rather than by re-parsing the cron
+// expression elsewhere keeps one source of truth: the job that is actually registered.
+func (s *Scheduler) NextBackupRun(userID string) (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tag := "backup:" + userID
+	for _, job := range s.s.Jobs() {
+		if job.Name() != tag {
+			continue
+		}
+		next, err := job.NextRun()
+		if err != nil || next.IsZero() {
+			return time.Time{}, false
+		}
+		return next, true
+	}
+	return time.Time{}, false
 }

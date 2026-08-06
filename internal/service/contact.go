@@ -339,6 +339,13 @@ func (s *ContactService) ListAll(ctx context.Context, userID string) ([]*domain.
 }
 
 func generateETag(data string) string {
+	return ContactETag(data)
+}
+
+// ContactETag derives a contact's ETag from its vCard text. Exported so a repair command can
+// recompute exactly what the write paths would have stored — a hand-rolled second copy of
+// this would drift and hand CardDAV clients an ETag that never matches.
+func ContactETag(data string) string {
 	h := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(h[:8])
 }

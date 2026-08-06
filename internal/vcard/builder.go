@@ -14,10 +14,23 @@ func BuildVCard(p *ParsedContact) (string, error) {
 
 func encodeCard(card gvcard.Card) (string, error) {
 	var sb strings.Builder
-	if err := gvcard.NewEncoder(&sb).Encode(card); err != nil {
+	if err := EncodeCard(&sb, card); err != nil {
 		return "", fmt.Errorf("encode vcard: %w", err)
 	}
 	return sb.String(), nil
+}
+
+// CardToString serialises a card, returning "" if it cannot be encoded.
+//
+// It exists so the CardDAV backend and the sync client stop keeping private copies of this:
+// both had their own three-line cardToString calling go-vcard directly, which meant they
+// bypassed this package entirely and kept the escaping bugs after they were fixed here.
+func CardToString(card gvcard.Card) string {
+	out, err := encodeCard(card)
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 // buildCard renders the properties ParsedContact models. Anything outside that set —

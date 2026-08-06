@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/service"
@@ -31,7 +32,7 @@ func setupRestore(t *testing.T, backupContent string) (*service.BackupService, *
 
 	contactRepo := newMockContactRepo()
 	abRepo := &mockAbRepo{ab: &domain.AddressBook{ID: testAddressBookID, UserID: "u1"}}
-	svc := service.NewBackupService(contactRepo, abRepo, nil, dir, "", 7)
+	svc := service.NewBackupService(contactRepo, abRepo, nil, zap.NewNop(), dir, "", 7)
 
 	return svc, contactRepo
 }

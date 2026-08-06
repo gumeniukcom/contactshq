@@ -26,6 +26,7 @@ func (m *mockTaskWorker) Enqueue(_ context.Context, jobType string, _ any) error
 
 func (m *mockTaskWorker) Start(_ context.Context) error { return nil }
 func (m *mockTaskWorker) Stop(_ context.Context) error  { return nil }
+func (m *mockTaskWorker) QueueDepth() int               { return 0 }
 
 func newTestScheduler(t *testing.T) (*worker.Scheduler, *mockTaskWorker) {
 	t.Helper()
