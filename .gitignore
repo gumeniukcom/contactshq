@@ -31,7 +31,7 @@ contactshq
 /server
 contactshq.db
 backups/
-configs/config.yaml
+configs/config.yaml*
 
 # Frontend
 web/node_modules/

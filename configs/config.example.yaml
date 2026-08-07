@@ -36,8 +36,12 @@ auth:
   # The server refuses to start without it (or with a known placeholder value).
   # Can also be supplied via the CHQ_AUTH_JWT_SECRET environment variable.
   jwt_secret: ""
-  token_ttl: "24h"
-  refresh_ttl: "720h"
+  # There is no token denylist — checking one would cost a database read on every
+  # authenticated request — so these lifetimes ARE the revocation window. To cut every
+  # session at once, change jwt_secret and restart.
+  # Env: CHQ_AUTH_TOKEN_TTL / CHQ_AUTH_REFRESH_TTL
+  token_ttl: "1h"
+  refresh_ttl: "168h"
 
 google:
   # Optional global defaults. Users provide their own credentials via the UI.
