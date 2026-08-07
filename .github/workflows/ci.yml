@@ -218,8 +218,16 @@ jobs:
           docker logs chq 2>&1 | grep -q 'replacement-password-42' && { echo "password leaked into the logs"; exit 1; }
           exit 0
 
-      # The encoder fix, end to end: a list separator must survive import and export as a
-      # separator, not as an escaped comma that collapses two categories into one.
+      # The encoder fix, end to end: a list separator must reach the export as a separator,
+      # not as an escaped comma that collapses two categories into one.
+      #
+      # There are two distinct paths and this covers both. A contact created through the API
+      # has its card built by our encoder — asserted here. A card that arrived earlier,
+      # escaped by the previous writer, is repaired by reencode-vcards — imported here and
+      # asserted in the reencode step below, which is where the repair actually runs.
+      #
+      # The create payload puts the structured contact under "fields": categories are not a
+      # top-level create field, and a photo only ever arrives inside a card.
       - name: vCard list separators survive a round trip
         run: |
           token=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
@@ -230,13 +238,17 @@ jobs:
 
           curl -s -o /dev/null -X POST http://127.0.0.1:8080/api/v1/contacts \
             -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
-            -d '{"first_name":"Grace","last_name":"Hopper","categories":["work","friends"],"photo_uri":"data:image/jpeg;base64,/9j/4AAQ"}'
+            -d '{"fields":{"first_name":"Grace","last_name":"Hopper","categories":["work","friends"]}}'
+
+          # Written the old way: the separator escaped into a literal comma. Distinct values
+          # from the created contact, so the assertions cannot match the wrong card.
+          printf 'BEGIN:VCARD\r\nVERSION:4.0\r\nUID:ci-legacy-1\r\nFN:Legacy Card\r\nCATEGORIES:home\\,travel\r\nPHOTO:data:image/jpeg;base64\\,/9j/4AAQ\r\nEND:VCARD\r\n' > legacy.vcf
+          curl -s -o /dev/null -X POST http://127.0.0.1:8080/api/v1/import/vcard \
+            -H "Authorization: Bearer $token" -F "file=@legacy.vcf"
 
           export_body=$(curl -s http://127.0.0.1:8080/api/v1/export/vcard -H "Authorization: Bearer $token")
           echo "$export_body" | grep -q 'CATEGORIES:work,friends' \
-            || { echo "categories were not exported as two items:"; echo "$export_body"; exit 1; }
-          echo "$export_body" | grep -q 'PHOTO:data:image/jpeg;base64,/9j/4AAQ' \
-            || { echo "the photo URI was escaped:"; echo "$export_body"; exit 1; }
+            || { echo "a created contact's categories were not exported as two items:"; echo "$export_body"; exit 1; }
 
       # Backup history: a manual backup must be recorded, or "last successful backup" is a
       # lie for anyone who backs up by hand.
@@ -274,3 +286,15 @@ jobs:
           docker exec chq ./contactshq reencode-vcards --apply --reconcile-sync-state >/dev/null
           docker exec chq ./contactshq reencode-vcards | grep -q '0 of' \
             || { echo "a second pass still found work to do — the rewrite is not idempotent"; exit 1; }
+
+          # The point of the rewrite: the card imported with the old escaping is now readable.
+          token=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"replacement-password-42"}' \
+            | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+          export_body=$(curl -s http://127.0.0.1:8080/api/v1/export/vcard -H "Authorization: Bearer $token")
+
+          echo "$export_body" | grep -q 'CATEGORIES:home,travel' \
+            || { echo "the legacy card's categories were not repaired:"; echo "$export_body"; exit 1; }
+          echo "$export_body" | grep -q 'PHOTO:data:image/jpeg;base64,/9j/4AAQ' \
+            || { echo "the legacy card's photo URI is still escaped:"; echo "$export_body"; exit 1; }
