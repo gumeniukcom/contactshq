@@ -1,4 +1,4 @@
-.PHONY: build build-frontend run test clean docker docker-up docker-down lint tidy dev-frontend setup-hooks
+.PHONY: build build-frontend run test specs clean docker docker-up docker-down lint tidy dev-frontend setup-hooks
 
 BINARY    = contactshq
 VERSION   = $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -19,6 +19,11 @@ dev-frontend:
 
 test:
 	go test ./... -v -count=1
+
+# The spec tree's own gate: ownership, house shape, and that every test a spec cites exists.
+# CI runs it too, as part of `go test ./...`.
+specs:
+	go test ./internal/speckit/ -count=1
 
 test-coverage:
 	go test ./... -coverprofile=coverage.out
