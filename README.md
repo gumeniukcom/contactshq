@@ -2,6 +2,10 @@
 
 A self-hosted contact management hub with a CardDAV server, multi-provider sync engine, and a modern web UI. Designed to be the single source of truth for all your contacts — no matter where they originally live.
 
+Current release: **v0.4.0**. [CHANGELOG.md](CHANGELOG.md) lists what changed and what has to
+be set *before* upgrading — 0.4.0 refuses plain-http provider endpoints and will not start
+with a write timeout configured.
+
 ## What it does
 
 - **Centralized address book** — store and manage all contacts in one place with full vCard 4.0 support (names, emails, phones, addresses, IMs, URLs, categories, dates, and more)
@@ -10,8 +14,8 @@ A self-hosted contact management hub with a CardDAV server, multi-provider sync 
 - **Incremental sync** — providers that support it (Google via a sync token, CardDAV via RFC 6578) send only what changed since the last run; exports write conditionally so a concurrent edit becomes a conflict rather than being overwritten
 - **Three-way merge** — when a contact is modified both locally and on a remote source, the engine merges changes field-by-field automatically; unresolvable conflicts are queued for manual review
 - **Conflict resolution UI** — inspect field-level diffs between base/local/remote versions and resolve each field individually
-- **Duplicate detection** — score-based detection (email, phone, name similarity) surfaces potential duplicates for review and merging
-- **Contact merge** — merge two contacts with field-by-field resolution; sync state is transferred to the winner automatically
+- **Duplicate detection** — pairs are found by a shared email address or a normalised phone number, and each pair says which one it was ("Same email: a@b.c") rather than showing a percentage
+- **Contact merge** — resolve the result value by value, so the work address from one record and the home address from the other is expressible; the merge is one transaction that transfers sync state, tombstones the discarded card, and keeps a 30-day history you can undo from by hand
 - **Import / Export** — import vCard (.vcf) and CSV files; export to vCard, CSV, or JSON
 - **Backup & restore** — scheduled or on-demand backups with optional gzip compression, configurable retention, and merge/replace restore modes
 - **QR codes** — generate a QR code for any contact (vCard payload, scannable by phones)
@@ -114,7 +118,12 @@ who knows the signing secret can mint tokens for any account, including admins.
 | `CHQ_SERVER_MAX_BODY_BYTES` | Largest request body (default `33554432`, 32 MiB) |
 | `CHQ_SERVER_MAX_IMPORT_BYTES` | Largest import upload; must not exceed the above |
 | `CHQ_SERVER_READ_TIMEOUT` | How long a client may take to send a request (default `30s`) |
+| `CHQ_SERVER_IDLE_TIMEOUT` | How long an idle keep-alive connection is held (default `120s`) |
 | `CHQ_CARDDAV_MAX_RESOURCE_BYTES` | Largest single vCard (default `1048576`, 1 MiB) |
+
+There is deliberately no write timeout, and the server refuses to start if you set one:
+restore and import run synchronously inside the request, so a write deadline would truncate
+an operation that is still changing contacts.
 
 > **On body limits:** `CHQ_SERVER_MAX_BODY_BYTES` is the only one that actually bounds memory —
 > fasthttp reads a whole body before any handler runs, so N concurrent uploads cost
@@ -137,6 +146,28 @@ currently accepts.
 > **Upgrading:** instances that relied on open registration must set
 > `CHQ_AUTH_ALLOW_REGISTRATION=true` to keep it. Everyone else gains a closed endpoint that
 > previously handed an account to anyone who could reach the port.
+
+### Where sync is allowed to connect
+
+A sync request carries the provider's username and password, so the endpoint is validated
+before anything is fetched. Only `https` is accepted by default; `file://`, `gopher://` and a
+bare hostname are refused outright, as is a URL carrying credentials in its userinfo. The
+check runs at all four places an endpoint can enter the system: CardDAV connect, a stored
+credential, the endpoint inside a pipeline step's config, and one posted to a manual trigger.
+
+Private addresses are **not** filtered — a CardDAV server on your LAN is a supported setup.
+What would make that dangerous is handled directly instead: the client follows at most three
+redirects and refuses to cross hosts, so a permitted host answering `302` toward a cloud
+metadata address goes nowhere.
+
+If your CardDAV server is reachable only over plain http, opt in explicitly:
+
+```bash
+CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true
+```
+
+> **Upgrading:** an instance already syncing over `http://` will fail every run until this is
+> set. Prefer fixing the transport where you can — the password travels in the request.
 
 ### Forgotten password
 
@@ -240,6 +271,16 @@ Two things happen at startup:
   schedule alone does not cover this: if the machine was off overnight, the next firing is
   tomorrow and the day's backup is simply gone.
 
+### Finding a request in the log
+
+Every request is logged with an id, taken from `X-Request-Id` when a reverse proxy supplies
+one and minted otherwise, and echoed back in the response header. That is the handle for
+"it failed at 14:32": ask for the id from the response, then grep the log for it.
+
+A *successful* `/health` check is not logged. The container health check polls it every 30
+seconds, and an idle instance's log would otherwise consist of nothing else. A failing one is
+always logged.
+
 ## Connect your devices
 
 ContactsHQ includes a built-in CardDAV server. Connect your iPhone, iPad, Mac, or Thunderbird to sync contacts automatically.
@@ -251,12 +292,21 @@ ContactsHQ includes a built-in CardDAV server. Connect your iPhone, iPad, Mac, o
 
 ## API
 
-All endpoints are under `/api/v1/`. Authentication uses Bearer JWT tokens.
+All endpoints are under `/api/v1/`. Authentication uses Bearer JWT tokens. This is a
+selection, not a reference — the router registers rather more than fits here, and
+`internal/handler/handler.go` is the authoritative list. Errors are always
+`{"error": "..."}`.
 
 ```
 POST   /api/v1/auth/register
 POST   /api/v1/auth/login
 POST   /api/v1/auth/refresh
+GET    /api/v1/auth/config      (public: {"registration_open": bool})
+
+GET    /api/v1/users/me
+PUT    /api/v1/users/me
+PUT    /api/v1/users/me/password
+DELETE /api/v1/users/me
 
 GET    /api/v1/contacts
 POST   /api/v1/contacts
@@ -267,6 +317,7 @@ POST   /api/v1/contacts/bulk-delete   (body: {"ids": [...]}, max 500)
 DELETE /api/v1/contacts          (delete all)
 GET    /api/v1/contacts/:id/vcard
 GET    /api/v1/contacts/:id/qrcode
+GET    /api/v1/contacts/facets   (categories, organisations and counts for the filter bar)
 
 POST   /api/v1/import/vcard
 POST   /api/v1/import/csv
@@ -283,20 +334,50 @@ POST   /api/v1/pipelines/:id/trigger
 GET    /api/v1/pipelines/:id/runs
 
 GET    /api/v1/sync/conflicts
+GET    /api/v1/sync/conflicts/count
 GET    /api/v1/sync/conflicts/:id
 POST   /api/v1/sync/conflicts/:id/resolve
 POST   /api/v1/sync/conflicts/:id/dismiss
 
 GET    /api/v1/contacts/duplicates
+GET    /api/v1/contacts/duplicates/count
+GET    /api/v1/contacts/duplicates/:id      (one pair, every value of both contacts)
 POST   /api/v1/contacts/duplicates/detect
+POST   /api/v1/contacts/duplicates/:id/dismiss
+GET    /api/v1/contacts/duplicates/settings
+PUT    /api/v1/contacts/duplicates/settings
 POST   /api/v1/contacts/merge
+GET    /api/v1/contacts/merge-log           (with a snapshot of the discarded card)
+
+GET    /api/v1/sync/providers
+DELETE /api/v1/sync/providers/:id
+POST   /api/v1/sync/google/connect
+POST   /api/v1/sync/google/trigger
+POST   /api/v1/sync/carddav/connect
+POST   /api/v1/sync/carddav/trigger
+GET    /api/v1/sync/status
+GET    /api/v1/sync/history
+
+GET    /api/v1/credentials
+POST   /api/v1/credentials
+GET    /api/v1/credentials/:id
+PUT    /api/v1/credentials/:id
+DELETE /api/v1/credentials/:id
 
 GET    /api/v1/backup/list
 POST   /api/v1/backup/create
-POST   /api/v1/backup/restore/:id
+POST   /api/v1/backup/restore/:id      (?mode=merge|replace)
+GET    /api/v1/backup/download/:id
 DELETE /api/v1/backup/:id
 GET    /api/v1/backup/settings
 PUT    /api/v1/backup/settings
+GET    /api/v1/backup/runs             (history, including manual and catch-up runs)
+GET    /api/v1/backup/status           (last success, last attempt, next scheduled run)
+
+GET    /api/v1/admin/users             (administrators only)
+POST   /api/v1/admin/users
+PUT    /api/v1/admin/users/:id/role
+DELETE /api/v1/admin/users/:id
 
 POST   /api/v1/app-passwords
 GET    /api/v1/app-passwords
@@ -313,10 +394,15 @@ The CardDAV server supports the CalendarServer CTag extension and RFC 6578
 `sync-collection`, so clients fetch only what changed rather than the whole address book
 on every poll.
 
-`GET /health` reports the version and, when configured with a database, its
-connectivity — it returns `503` with `"status":"degraded"` when the database is
-unreachable, which is what the container's `HEALTHCHECK` and a monitoring probe should
-watch.
+`GET /health` returns `503` with `"status":"degraded"` when the database is unreachable,
+which is what the container's `HEALTHCHECK` and a monitoring probe should watch. It also
+reports the build version, the applied `schema_version` (`025_backup_runs`) — the first
+question after an upgrade — and `queue_depth`, so a backlog is distinguishable from an idle
+system. A deep queue is reported, never fatal: answering `503` for it would make the health
+check restart the process, and a restart is exactly what loses the queued jobs.
+
+`/health` is public and deliberately carries nothing per-user: backup health lives behind
+authentication at `GET /backup/status`.
 
 ## Development
 
