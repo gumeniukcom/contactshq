@@ -45,6 +45,25 @@ internal/web/static/spa/*
 /contactshq.db-wal
 
 # Dev tools
-.claude/
 .serena/
 .release-notes.md
+
+# spec-kit ships the /speckit-* skills into .claude/skills/, and those are shared
+# tooling that MUST be committed. A user-level core.excludesFile commonly ignores
+# `**/.claude/` wholesale; a repo .gitignore outranks it, so re-include the directory
+# here. Git cannot re-include a path under an excluded DIRECTORY — hence `.claude/*`
+# with a star rather than a trailing slash, or no negation below it can ever fire.
+#
+# Allowlist, not denylist: everything under .claude/ is ignored and skills/ is named
+# back in. Tools keep inventing new session state in there (settings.local.json,
+# scheduled_tasks.lock, ...) and an enumeration would leak the next one into a commit.
+!.claude/
+.claude/*
+!.claude/skills/
+
+# spec-kit session state: create-new-feature.sh writes .specify/feature.json on nearly
+# every /speckit-* invocation. Committing it hands every contributor someone else's
+# current-feature pointer. Everything else under .specify/ is shared infrastructure
+# and IS committed.
+.specify/feature.json
+.specify/extensions.yml

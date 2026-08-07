@@ -13,6 +13,9 @@ configs/config.yaml
 .claude
 .serena
 .goreleaser.yaml
+# Spec-driven development artefacts: documentation, never inputs to the build.
+.specify
+specs
 
 # Local build output. web/ itself must stay: the frontend stage builds from it and is what
 # produces internal/web/static/spa.
