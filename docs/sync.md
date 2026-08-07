@@ -96,3 +96,24 @@ configuration is needed; clients negotiate it automatically.
   reconciles any drift.
 - The job queue is in-memory: a sync scheduled moments before a restart is drained on
   shutdown, but a hard kill (SIGKILL) drops it. It runs on the next scheduled tick.
+
+## Things that moved in v0.3.0
+
+Two changes in this release alter bytes the engine compares, so they are worth knowing about
+before debugging a surprising resync.
+
+**The vCard encoder changed.** Escaping is now chosen per value type, which changes the exact
+bytes of any card holding a comma in a URI, a category separator, a semicolon in a structured
+value, or an embedded newline. `cardToString` is applied to data read from the *remote* side
+too, so `ContentHash` (engine.go) and `LocalETag` both move for those cards. The first sync
+after upgrading can therefore look like "the remote changed" for cards with such values. The
+mass-delete circuit breaker does not cover this — it counts deletions only.
+
+Cards already stored are not rewritten automatically; `contactshq reencode-vcards` does that,
+and its `--reconcile-sync-state` step exists precisely to stop the next export from pushing the
+whole address book outward.
+
+**Merging writes differently.** `ContactRepository.MergeInto` saves the surviving contact and
+deletes the merged-away one in a single transaction, under one change sequence, and writes the
+loser's tombstone itself. A client synchronising across a merge sees exactly two entries — one
+update and one deletion — rather than a window in which the contact exists twice or not at all.

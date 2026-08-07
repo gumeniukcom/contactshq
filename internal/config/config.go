@@ -42,12 +42,18 @@ var envBoundKeys = []string{
 	"google.client_secret",
 	"google.redirect_url",
 	"server.trusted_proxies",
+	"server.max_body_bytes",
+	"server.max_import_bytes",
+	"server.read_timeout",
+	"server.idle_timeout",
 	"carddav.path_prefix",
+	"carddav.max_resource_bytes",
 	"backup.dir",
 	"backup.schedule",
 	"backup.max_restore_bytes",
 	"merge.log_retention_days",
 	"sync.runs_retention_days",
+	"sync.allow_insecure_endpoints",
 	"log.level",
 	"log.format",
 }
@@ -73,6 +79,28 @@ type ServerConfig struct {
 	// forwarded header and treats the direct peer as the client — safe when exposed
 	// directly, but it collapses per-client rate limiting behind a proxy.
 	TrustedProxies []string `mapstructure:"trusted_proxies"`
+
+	// MaxBodyBytes is the real ceiling: fasthttp reads a whole body into memory before any
+	// handler runs, so with N concurrent uploads the worst case is N × this value. Set it to
+	// what import actually needs rather than "with room to spare"; the per-route limits below
+	// are policy on top of it, not protection.
+	MaxBodyBytes int `mapstructure:"max_body_bytes"`
+
+	// MaxImportBytes bounds an import upload. Must not exceed MaxBodyBytes, which would make
+	// it a promise the server cannot keep.
+	MaxImportBytes int `mapstructure:"max_import_bytes"`
+
+	// ReadTimeout bounds how long a client may take to send its request. Without it a
+	// connection dribbling one byte at a time holds a worker indefinitely.
+	ReadTimeout time.Duration `mapstructure:"read_timeout"`
+
+	// IdleTimeout bounds a kept-alive connection between requests.
+	IdleTimeout time.Duration `mapstructure:"idle_timeout"`
+
+	// WriteTimeout must stay 0. See the comment where it is applied in cmd/server/main.go:
+	// restore and import run synchronously inside the HTTP request, so any write deadline
+	// here truncates the response of an operation that is still mutating contacts.
+	WriteTimeout time.Duration `mapstructure:"write_timeout"`
 }
 
 type DatabaseConfig struct {
@@ -99,6 +127,11 @@ type GoogleConfig struct {
 
 type CardDAVConfig struct {
 	PathPrefix string `mapstructure:"path_prefix"`
+
+	// MaxResourceBytes bounds one vCard. It is also announced to clients as
+	// CARDDAV:max-resource-size so they learn the limit up front rather than by being
+	// refused after uploading.
+	MaxResourceBytes int `mapstructure:"max_resource_bytes"`
 }
 
 type BackupConfig struct {
@@ -122,6 +155,10 @@ type SyncConfig struct {
 	// RunsRetentionDays bounds how long sync_runs rows live. The table gains a row per
 	// pipeline execution, so unlike backup_runs it grows without bound.
 	RunsRetentionDays int `mapstructure:"runs_retention_days"`
+
+	// AllowInsecureEndpoints permits plain http provider URLs. Off by default: a sync request
+	// carries the provider's username and password.
+	AllowInsecureEndpoints bool `mapstructure:"allow_insecure_endpoints"`
 }
 
 type LogConfig struct {
@@ -137,15 +174,25 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("database.driver", "sqlite")
 	v.SetDefault("database.dsn", "contactshq.db")
-	v.SetDefault("auth.token_ttl", "24h")
-	v.SetDefault("auth.refresh_ttl", "720h")
+	// Short-lived by design. There is no token revocation list — a jti denylist would put a
+	// database read on every authenticated request, and this deployment has one connection —
+	// so the lifetime IS the revocation window. The SPA refreshes transparently, so a shorter
+	// access token costs the user nothing.
+	v.SetDefault("auth.token_ttl", "1h")
+	v.SetDefault("auth.refresh_ttl", "168h")
 	v.SetDefault("auth.allow_registration", false)
+	v.SetDefault("server.max_body_bytes", 32<<20)
+	v.SetDefault("server.max_import_bytes", 32<<20)
+	v.SetDefault("server.read_timeout", "30s")
+	v.SetDefault("server.idle_timeout", "120s")
 	v.SetDefault("carddav.path_prefix", "/dav")
+	v.SetDefault("carddav.max_resource_bytes", 1<<20)
 	v.SetDefault("backup.dir", "./backups")
 	v.SetDefault("backup.schedule", "0 2 * * *")
 	v.SetDefault("backup.max_restore_bytes", 128<<20)
 	v.SetDefault("merge.log_retention_days", 30)
 	v.SetDefault("sync.runs_retention_days", 90)
+	v.SetDefault("sync.allow_insecure_endpoints", false)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 }
@@ -250,8 +297,14 @@ func (c *Config) Validate() error {
 	if err := c.Server.validate(); err != nil {
 		return err
 	}
+	if err := c.CardDAV.validate(); err != nil {
+		return err
+	}
 	return c.Database.validate()
 }
+
+// ErrInvalidLimit flags a size limit that cannot be honoured.
+var ErrInvalidLimit = errors.New("invalid size limit")
 
 func (d DatabaseConfig) validate() error {
 	switch d.Driver {
@@ -277,6 +330,31 @@ func (s ServerConfig) validate() error {
 			continue
 		}
 		return fmt.Errorf("%w: %q is not an IP address or CIDR range", ErrInvalidTrustedProxy, p)
+	}
+
+	if s.MaxBodyBytes <= 0 {
+		return fmt.Errorf("%w: server.max_body_bytes must be positive", ErrInvalidLimit)
+	}
+	if s.MaxImportBytes <= 0 {
+		return fmt.Errorf("%w: server.max_import_bytes must be positive", ErrInvalidLimit)
+	}
+	// A per-route limit above the global one is a promise the server cannot keep: fasthttp
+	// rejects the request before the route's middleware ever sees it.
+	if s.MaxImportBytes > s.MaxBodyBytes {
+		return fmt.Errorf("%w: server.max_import_bytes (%d) exceeds server.max_body_bytes (%d)",
+			ErrInvalidLimit, s.MaxImportBytes, s.MaxBodyBytes)
+	}
+	// Fail fast rather than silently truncating long uploads; see cmd/server/main.go.
+	if s.WriteTimeout != 0 {
+		return fmt.Errorf("%w: server.write_timeout must be 0 — restore and import run "+
+			"synchronously inside the request and a write deadline truncates them", ErrInvalidLimit)
+	}
+	return nil
+}
+
+func (c CardDAVConfig) validate() error {
+	if c.MaxResourceBytes <= 0 {
+		return fmt.Errorf("%w: carddav.max_resource_bytes must be positive", ErrInvalidLimit)
 	}
 	return nil
 }

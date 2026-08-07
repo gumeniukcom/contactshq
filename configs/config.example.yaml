@@ -1,6 +1,19 @@
 
 server:
   port: 8080
+  # The real ceiling on a request body: fasthttp reads it entirely into memory before any
+  # handler runs, so N concurrent uploads cost N × this. The per-route limits are policy on
+  # top of it, not protection. Env: CHQ_SERVER_MAX_BODY_BYTES
+  max_body_bytes: 33554432   # 32 MiB
+  # Import is the one route where a large body is the point. Must not exceed max_body_bytes.
+  # Env: CHQ_SERVER_MAX_IMPORT_BYTES
+  max_import_bytes: 33554432
+  # Bounds how long a client may take to send a request. Env: CHQ_SERVER_READ_TIMEOUT
+  read_timeout: 30s
+  idle_timeout: 120s
+  # write_timeout is deliberately absent and must stay 0: restore and import run
+  # synchronously inside the request, so a write deadline truncates an operation that is
+  # still changing contacts. The server refuses to start with a non-zero value.
   host: "0.0.0.0"
   # Reverse proxies whose X-Forwarded-For header may be trusted, as IPs or CIDR
   # ranges. Leave empty when exposed directly. Set this behind a proxy so auth
@@ -34,6 +47,9 @@ google:
 
 carddav:
   path_prefix: "/dav"
+  # Largest single vCard accepted, also announced to clients as CARDDAV:max-resource-size so
+  # they learn the limit before uploading. Env: CHQ_CARDDAV_MAX_RESOURCE_BYTES
+  max_resource_bytes: 1048576  # 1 MiB
 
 backup:
   dir: "./backups"
@@ -50,6 +66,9 @@ merge:
   log_retention_days: 30
 
 sync:
+  # Permit plain http provider endpoints. Off by default: a sync request carries the
+  # provider's username and password. Env: CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS
+  allow_insecure_endpoints: false
   # How long a record of a pipeline run is kept. Unlike backup history — about one row a day —
   # this table gains a row per pipeline execution.
   # Env: CHQ_SYNC_RUNS_RETENTION_DAYS

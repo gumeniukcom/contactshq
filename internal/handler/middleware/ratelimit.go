@@ -16,6 +16,14 @@ const (
 	// Refreshing only verifies an HMAC signature, so it is cheap and not
 	// brute-forceable. It is limited generously, to bound abuse rather than guessing.
 	RefreshRateLimit = 60
+
+	// ExpensiveOpRateLimit covers the endpoints that read or rewrite the whole address book:
+	// import, backup, restore, duplicate detection, pipeline triggers.
+	//
+	// They deliberately share ONE bucket. Given a limiter each, a client could run all of
+	// them at once and spend five times the budget of CPU and memory; the point is to bound
+	// the total, not each door into it.
+	ExpensiveOpRateLimit = 5
 )
 
 // RateLimiter throttles a route by client IP over a one-minute window.

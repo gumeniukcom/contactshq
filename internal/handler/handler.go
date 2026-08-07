@@ -46,6 +46,13 @@ type Services struct {
 	AppPassword       *service.AppPasswordService
 	SyncConflict      *service.SyncConflictService
 
+	// Limits carries the per-route body caps. A zero Default disables the middleware, which
+	// is what tests that do not care about limits get.
+	Limits middleware.BodyLimits
+
+	// EndpointPolicy decides which provider URLs this deployment is willing to fetch.
+	EndpointPolicy chqsync.EndpointPolicy
+
 	// DB backs the health check's connectivity probe.
 	DB *bun.DB
 
@@ -59,10 +66,18 @@ func Register(app *fiber.App, svc Services) {
 	userHandler := NewUserHandler(svc.User)
 	contactHandler := NewContactHandler(svc.Contact)
 	adminHandler := NewAdminHandler(svc.User)
-	syncHandler := NewSyncHandler(svc.SyncRunRepo, svc.SyncStateRepo, svc.SyncConflictRepo, svc.ProviderConnRepo, svc.SyncConflict, svc.Worker)
-	credHandler := NewCredentialHandler(svc.ProviderConnRepo)
+	syncHandler := NewSyncHandler(svc.SyncRunRepo, svc.SyncStateRepo, svc.SyncConflictRepo, svc.ProviderConnRepo, svc.SyncConflict, svc.Worker).
+		WithEndpointPolicy(svc.EndpointPolicy)
+	credHandler := NewCredentialHandler(svc.ProviderConnRepo, svc.EndpointPolicy)
 
 	api := app.Group("/api/v1")
+
+	// One middleware for the whole API, resolving the limit per path. Mounting a narrow limit
+	// here and a wider one on /import would not work: both would run, this one first, and its
+	// 413 would win.
+	if svc.Limits.Default > 0 {
+		api.Use(middleware.BodyLimit(svc.Limits))
+	}
 
 	// Auth (public, rate-limited). Register and login share one bucket: both verify or
 	// derive an argon2id hash, so they gate the same expensive work.
@@ -83,6 +98,11 @@ func Register(app *fiber.App, svc Services) {
 
 	// Protected routes
 	protected := api.Use(middleware.JWTAuth(svc.Auth))
+
+	// One limiter instance shared by every expensive route below: RateLimiter's counter
+	// belongs to the handler it returns, so passing this same value to several routes is
+	// what makes them share a budget rather than each getting their own.
+	expensive := middleware.RateLimiter(middleware.ExpensiveOpRateLimit)
 
 	// User
 	users := protected.Group("/users")
@@ -111,7 +131,7 @@ func Register(app *fiber.App, svc Services) {
 		// Fiber matches in registration order, so "/duplicates/count" would otherwise be
 		// swallowed by "/duplicates/:id".
 		contacts.Get("/duplicates/:id", dupHandler.Get)
-		contacts.Post("/duplicates/detect", dupHandler.Detect)
+		contacts.Post("/duplicates/detect", expensive, dupHandler.Detect)
 		contacts.Post("/duplicates/:id/dismiss", dupHandler.Dismiss)
 		contacts.Post("/merge", dupHandler.Merge)
 		contacts.Get("/merge-log", dupHandler.MergeLog)
@@ -125,9 +145,11 @@ func Register(app *fiber.App, svc Services) {
 	// Import/Export
 	if svc.Importer != nil {
 		importHandler := NewImportHandler(svc.Importer)
+		// The larger allowance for these routes is declared in Services.Limits.Overrides,
+		// not mounted here — see the note where the middleware is registered.
 		imp := protected.Group("/import")
-		imp.Post("/vcard", importHandler.ImportVCard)
-		imp.Post("/csv", importHandler.ImportCSV)
+		imp.Post("/vcard", expensive, importHandler.ImportVCard)
+		imp.Post("/csv", expensive, importHandler.ImportCSV)
 	}
 
 	if svc.Exporter != nil {
@@ -192,14 +214,15 @@ func Register(app *fiber.App, svc Services) {
 
 	// Pipelines
 	if svc.Pipeline != nil && svc.Orchestrator != nil {
-		pipelineHandler := NewPipelineHandler(svc.Pipeline, svc.Orchestrator, svc.SyncRunRepo, svc.Scheduler)
+		pipelineHandler := NewPipelineHandler(svc.Pipeline, svc.Orchestrator, svc.SyncRunRepo, svc.Scheduler).
+			WithEndpointPolicy(svc.EndpointPolicy)
 		pipelines := protected.Group("/pipelines")
 		pipelines.Get("/", pipelineHandler.List)
 		pipelines.Post("/", pipelineHandler.Create)
 		pipelines.Get("/:id", pipelineHandler.Get)
 		pipelines.Put("/:id", pipelineHandler.Update)
 		pipelines.Delete("/:id", pipelineHandler.Delete)
-		pipelines.Post("/:id/trigger", pipelineHandler.Trigger)
+		pipelines.Post("/:id/trigger", expensive, pipelineHandler.Trigger)
 		pipelines.Get("/:id/runs", pipelineHandler.ListRuns)
 	}
 
@@ -208,7 +231,7 @@ func Register(app *fiber.App, svc Services) {
 		backupHandler := NewBackupHandler(svc.Backup, svc.Scheduler, svc.Logger).
 			WithRunRepo(svc.BackupRunRepo)
 		backup := protected.Group("/backup")
-		backup.Post("/create", backupHandler.Create)
+		backup.Post("/create", expensive, backupHandler.Create)
 		backup.Get("/list", backupHandler.List)
 		backup.Get("/runs", backupHandler.Runs)
 		backup.Get("/status", backupHandler.Status)
@@ -216,7 +239,7 @@ func Register(app *fiber.App, svc Services) {
 		backup.Put("/settings", backupHandler.SaveSettings)
 		backup.Get("/download/:id", backupHandler.Download)
 		backup.Delete("/:id", backupHandler.Delete)
-		backup.Post("/restore/:id", backupHandler.Restore)
+		backup.Post("/restore/:id", expensive, backupHandler.Restore)
 	}
 
 	// Admin
@@ -240,7 +263,9 @@ func Register(app *fiber.App, svc Services) {
 		}
 
 		// Queue state was previously unobservable from outside the process: a backlog looked
-		// identical to an idle system.
+		// identical to an idle system. Reported, never fatal: answering 503 here would make
+		// the container health check restart the process, and a restart is precisely what
+		// loses the queued jobs.
 		if svc.Worker != nil {
 			body["queue_depth"] = svc.Worker.QueueDepth()
 		}
@@ -255,6 +280,12 @@ func Register(app *fiber.App, svc Services) {
 				return c.Status(fiber.StatusServiceUnavailable).JSON(body)
 			}
 			body["database"] = "ok"
+
+			// The first thing an operator wants to know after an upgrade: which schema is
+			// actually applied.
+			if version, err := repository.SchemaVersion(ctx, svc.DB); err == nil {
+				body["schema_version"] = version
+			}
 		}
 
 		return c.JSON(body)

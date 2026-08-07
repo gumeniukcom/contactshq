@@ -145,6 +145,9 @@ left alone because nothing here touched the remote side.
   - **Numbers are assigned at merge time, not planning time.** Two branches that both claim
     `023` will diverge across installs and `schema_migrations` will record incompatible
     states. Renumber on rebase.
+  - `schema_migrations.version` holds the migration's **filename stem** (`025_backup_runs`),
+    not a number. `SchemaVersion` returns a string for that reason; the names are zero-padded
+    so the lexicographic maximum is also the numeric one. **25 migrations** as of v0.3.0.
 - **A new table means a new line in `expectedTables`** (`internal/repository/migrate_postgres_test.go`)
   **in the same PR** — that test compares the live schema against the list in both directions.
 - **PostgreSQL coverage naming**: CI runs only `go test ./internal/repository/ -run TestPostgres`.
@@ -184,6 +187,23 @@ left alone because nothing here touched the remote side.
     ambiguous. Fixing it means owning the decode path.
   - Changing the encoder moves `ContentHash` and `LocalETag` for affected cards. Anything
     that touches it needs the maintenance-window treatment described under `reencode-vcards`.
+- **Body limits**: `server.max_body_bytes` is the only one that bounds memory — fasthttp reads
+  a whole body before any handler runs, so N concurrent uploads cost N × that. The per-route
+  `middleware.BodyLimit` is POLICY (a clear 413), not protection. It resolves the limit per
+  path in ONE middleware: mounting a narrow limit on a parent group and a wider one on a child
+  does not work, because both run and the parent's 413 wins.
+- **`server.write_timeout` must stay 0** and config validation refuses to start otherwise:
+  `POST /backup/restore/:id` and `POST /import/*` run synchronously inside the request, so a
+  write deadline truncates an operation that is still changing contacts.
+- **`ctx.Err()` in long loops, but never between `DeleteAll` and the inserts** in restore —
+  cancelling there leaves an empty address book, turning "more cancellable" into data loss.
+  With fasthttp, `c.Context()` is only cancelled at server shutdown and `c.UserContext()`
+  returns `context.Background()` when unset; swapping them changes nothing.
+- **Provider endpoints are validated at all four entry points** (`ValidateProviderEndpoint`):
+  CardDAV connect, stored credentials, the endpoint inside a pipeline step's JSON, and the
+  trigger endpoint posted in a request body. The client also refuses cross-host redirects —
+  validating the string alone would not stop `302 → 169.254.169.254`. Private addresses are
+  deliberately NOT filtered: LAN CardDAV is a supported setup.
 - **Sync**: `SyncProvider.Put` returns the id the provider assigned (Google mints its
   own). Incremental providers implement `IncrementalProvider` (delta + cursor);
   conditional writers implement `ConditionalWriter` (If-Match / ETag). The engine falls

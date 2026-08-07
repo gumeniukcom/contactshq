@@ -16,6 +16,15 @@ type PipelineHandler struct {
 	orchestrator    *chqsync.PipelineOrchestrator
 	syncRunRepo     repository.SyncRunRepository
 	scheduler       *worker.Scheduler
+	// endpointPolicy decides which provider URLs a step may point at. Checked when the
+	// pipeline is saved, so a bad endpoint is refused at the keyboard rather than at 02:00.
+	endpointPolicy chqsync.EndpointPolicy
+}
+
+// WithEndpointPolicy sets what a saved step may point at.
+func (h *PipelineHandler) WithEndpointPolicy(policy chqsync.EndpointPolicy) *PipelineHandler {
+	h.endpointPolicy = policy
+	return h
 }
 
 func NewPipelineHandler(pipelineService *service.PipelineService, orchestrator *chqsync.PipelineOrchestrator, syncRunRepo repository.SyncRunRepository, scheduler *worker.Scheduler) *PipelineHandler {
@@ -40,12 +49,12 @@ func (h *PipelineHandler) List(c *fiber.Ctx) error {
 
 // validateSteps rejects a pipeline the engine could not run, at the moment the user
 // saves it rather than silently at the next scheduled run.
-func validateSteps(steps []service.CreatePipelineStep) error {
+func validateSteps(steps []service.CreatePipelineStep, policy chqsync.EndpointPolicy) error {
 	if len(steps) == 0 {
 		return fmt.Errorf("a pipeline needs at least one step")
 	}
 	for i, step := range steps {
-		if err := chqsync.ValidateStep(step.SourceType, step.DestType); err != nil {
+		if err := chqsync.ValidateStep(step.SourceType, step.SourceConfig, step.DestType, step.DestConfig, policy); err != nil {
 			return fmt.Errorf("step %d: %w", i+1, err)
 		}
 		if _, err := chqsync.ParseSyncMode(step.Direction); err != nil {
@@ -72,7 +81,7 @@ func (h *PipelineHandler) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	if err := validateSteps(input.Steps); err != nil {
+	if err := validateSteps(input.Steps, h.endpointPolicy); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -118,7 +127,7 @@ func (h *PipelineHandler) Update(c *fiber.Ctx) error {
 		}
 	}
 
-	if err := validateSteps(input.Steps); err != nil {
+	if err := validateSteps(input.Steps, h.endpointPolicy); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 

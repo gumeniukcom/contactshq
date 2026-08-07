@@ -26,6 +26,15 @@ type PipelineOrchestrator struct {
 	credRepo     repository.ProviderConnectionRepository // optional: resolves credential_id refs
 	googleOAuth  OAuthHTTPClientProvider                 // optional: for Google provider
 	logger       *zap.Logger
+	// endpointPolicy decides which provider URLs this deployment is willing to fetch.
+	endpointPolicy EndpointPolicy
+}
+
+// WithEndpointPolicy sets what the orchestrator will fetch. The zero policy refuses plain
+// http, which is the safe default.
+func (o *PipelineOrchestrator) WithEndpointPolicy(policy EndpointPolicy) *PipelineOrchestrator {
+	o.endpointPolicy = policy
+	return o
 }
 
 func NewPipelineOrchestrator(
@@ -68,7 +77,11 @@ var ErrInvalidStep = errors.New("invalid pipeline step")
 // Provider-to-provider steps used to be expressible. They were never tested, and
 // conflict resolution cannot work for them: it resolves a conflict by loading the local
 // contact, and neither side is local. Chain two steps through the internal book instead.
-func ValidateStep(sourceType, destType string) error {
+//
+// It takes the configs, not just the types: the endpoint lives inside SourceConfig/DestConfig,
+// so with the previous signature this function physically could not see the one field most
+// worth validating.
+func ValidateStep(sourceType, sourceConfig, destType, destConfig string, policy EndpointPolicy) error {
 	if destType != ProviderInternal {
 		return fmt.Errorf("%w: destination must be %q, got %q", ErrInvalidStep, ProviderInternal, destType)
 	}
@@ -78,7 +91,7 @@ func ValidateStep(sourceType, destType string) error {
 	if sourceType == "" {
 		return fmt.Errorf("%w: source provider is required", ErrInvalidStep)
 	}
-	return nil
+	return ValidateStepEndpoints(sourceConfig, destConfig, policy)
 }
 
 func (o *PipelineOrchestrator) Execute(ctx context.Context, userID string, pipeline *domain.Pipeline) ([]StepResult, error) {
@@ -90,7 +103,7 @@ func (o *PipelineOrchestrator) Execute(ctx context.Context, userID string, pipel
 	results := make([]StepResult, 0, len(steps))
 
 	for _, step := range steps {
-		if err := ValidateStep(step.SourceType, step.DestType); err != nil {
+		if err := ValidateStep(step.SourceType, step.SourceConfig, step.DestType, step.DestConfig, o.endpointPolicy); err != nil {
 			results = append(results, StepResult{
 				StepOrder: step.Order,
 				Error:     err.Error(),

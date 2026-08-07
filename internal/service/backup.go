@@ -443,6 +443,14 @@ func (s *BackupService) Restore(ctx context.Context, userID, backupID, mode stri
 		}
 		vcardpkg.ApplyToContact(contact, parsed)
 
+		// Cancellation is honoured during parsing only. Past this point the restore starts
+		// deleting and inserting, and a cancellation between DeleteAll and the inserts would
+		// leave an empty address book — "more cancellable" would become a way to lose every
+		// contact. See the loop below, which deliberately has no such check.
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		prepared = append(prepared, preparedContact{contact: contact, parsed: parsed})
 	}
 
@@ -455,6 +463,8 @@ func (s *BackupService) Restore(ctx context.Context, userID, backupID, mode stri
 		}
 	}
 
+	// No ctx.Err() in this loop, on purpose: DeleteAll has already run in replace mode, so
+	// bailing out here is how a restore turns into data loss.
 	for _, p := range prepared {
 		if mode == "merge" {
 			existing, err := s.contactRepo.GetByUID(ctx, ab.ID, p.contact.UID)

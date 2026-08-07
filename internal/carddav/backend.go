@@ -83,6 +83,9 @@ type Backend struct {
 	abRepo      repository.AddressBookRepository
 	contactRepo repository.ContactRepository
 	prefix      string
+	// maxResourceSize is advertised to clients as CARDDAV:max-resource-size. Zero means the
+	// property is omitted, which is how go-webdav behaved before.
+	maxResourceSize int64
 }
 
 func NewBackend(userRepo repository.UserRepository, abRepo repository.AddressBookRepository, contactRepo repository.ContactRepository, prefix string) *Backend {
@@ -92,6 +95,12 @@ func NewBackend(userRepo repository.UserRepository, abRepo repository.AddressBoo
 		contactRepo: contactRepo,
 		prefix:      prefix,
 	}
+}
+
+// WithMaxResourceSize advertises a per-card size limit to clients.
+func (b *Backend) WithMaxResourceSize(bytes int64) *Backend {
+	b.maxResourceSize = bytes
+	return b
 }
 
 func (b *Backend) CurrentUserPrincipal(ctx context.Context) (string, error) {
@@ -130,6 +139,9 @@ func (b *Backend) ListAddressBooks(ctx context.Context) ([]carddav.AddressBook, 
 			Path:        AddressBookPath(b.prefix, email),
 			Name:        ab.Name,
 			Description: ab.Description,
+			// Announced so a client learns the limit before uploading rather than by being
+			// refused afterwards; go-webdav renders it as CARDDAV:max-resource-size.
+			MaxResourceSize: b.maxResourceSize,
 		},
 	}, nil
 }
@@ -150,9 +162,10 @@ func (b *Backend) GetAddressBook(ctx context.Context, path string) (*carddav.Add
 
 	email := GetUserEmail(ctx)
 	return &carddav.AddressBook{
-		Path:        AddressBookPath(b.prefix, email),
-		Name:        ab.Name,
-		Description: ab.Description,
+		Path:            AddressBookPath(b.prefix, email),
+		Name:            ab.Name,
+		Description:     ab.Description,
+		MaxResourceSize: b.maxResourceSize,
 	}, nil
 }
 

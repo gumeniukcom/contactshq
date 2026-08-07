@@ -11,6 +11,7 @@ import (
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
 	"github.com/gumeniukcom/contactshq/internal/service"
+	chqsync "github.com/gumeniukcom/contactshq/internal/sync"
 	"github.com/gumeniukcom/contactshq/internal/worker"
 	"github.com/gumeniukcom/contactshq/internal/worker/jobs"
 )
@@ -22,6 +23,14 @@ type SyncHandler struct {
 	providerConnRepo repository.ProviderConnectionRepository
 	conflictSvc      *service.SyncConflictService
 	worker           worker.TaskWorker
+	// endpointPolicy decides which provider URLs this deployment will fetch.
+	endpointPolicy chqsync.EndpointPolicy
+}
+
+// WithEndpointPolicy sets what this handler will accept as a provider URL.
+func (h *SyncHandler) WithEndpointPolicy(policy chqsync.EndpointPolicy) *SyncHandler {
+	h.endpointPolicy = policy
+	return h
 }
 
 func NewSyncHandler(
@@ -98,8 +107,8 @@ func (h *SyncHandler) CardDAVConnect(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
-	if req.URL == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "url is required"})
+	if err := chqsync.ValidateProviderEndpoint(req.URL, h.endpointPolicy); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	if h.providerConnRepo == nil {
@@ -151,6 +160,15 @@ func (h *SyncHandler) CardDAVTrigger(c *fiber.Ctx) error {
 	var req carddavConnectRequest
 	_ = c.BodyParser(&req) // body is optional
 
+	// The endpoint may arrive straight from the request body here and is used immediately,
+	// leaving no stored row behind — so an attempt through this route is invisible after the
+	// fact. It gets the same check as the stored one.
+	if req.URL != "" {
+		if err := chqsync.ValidateProviderEndpoint(req.URL, h.endpointPolicy); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+
 	if req.URL == "" && h.providerConnRepo != nil {
 		conn, err := h.providerConnRepo.GetByUserAndType(c.Context(), userID, "carddav")
 		if err != nil {
@@ -165,8 +183,8 @@ func (h *SyncHandler) CardDAVTrigger(c *fiber.Ctx) error {
 		req.SkipTLSVerify = conn.SkipTLSVerify
 	}
 
-	if req.URL == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "url is required"})
+	if err := chqsync.ValidateProviderEndpoint(req.URL, h.endpointPolicy); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	cfgBytes, _ := json.Marshal(map[string]any{

@@ -91,8 +91,8 @@ database:
 
 auth:
   jwt_secret: ""          # required, min 32 chars — openssl rand -hex 32
-  token_ttl: 24h
-  refresh_ttl: 720h
+  token_ttl: 1h
+  refresh_ttl: 168h
 ```
 
 `auth.jwt_secret` has no default: the server refuses to start when it is missing, shorter
@@ -110,6 +110,17 @@ who knows the signing secret can mint tokens for any account, including admins.
 | `CHQ_BACKUP_MAX_RESTORE_BYTES` | Cap on decompressed restore size (default `134217728`, 128 MiB) |
 | `CHQ_MERGE_LOG_RETENTION_DAYS` | How long merge history is kept (default `30`) |
 | `CHQ_SYNC_RUNS_RETENTION_DAYS` | How long pipeline run history is kept (default `90`) |
+| `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS` | Permit plain `http` provider URLs (default `false`) |
+| `CHQ_SERVER_MAX_BODY_BYTES` | Largest request body (default `33554432`, 32 MiB) |
+| `CHQ_SERVER_MAX_IMPORT_BYTES` | Largest import upload; must not exceed the above |
+| `CHQ_SERVER_READ_TIMEOUT` | How long a client may take to send a request (default `30s`) |
+| `CHQ_CARDDAV_MAX_RESOURCE_BYTES` | Largest single vCard (default `1048576`, 1 MiB) |
+
+> **On body limits:** `CHQ_SERVER_MAX_BODY_BYTES` is the only one that actually bounds memory —
+> fasthttp reads a whole body before any handler runs, so N concurrent uploads cost
+> N × that value. Set it to what import genuinely needs, not "with room to spare". The
+> per-route limits give a clear 413 where a large body is meaningless; they are policy, not
+> protection.
 
 ### Who can create an account
 
@@ -188,6 +199,21 @@ would read the whole address book as locally modified and push all of it to Goog
 on the next run. The flag brings the sync state back in line in the same pass.
 
 Running it twice is safe: the second pass reports nothing to do.
+
+### Revoking every session at once
+
+There is no token denylist — checking one would mean a database read on every authenticated
+request, and this deployment runs with a single connection. The token lifetime is therefore
+the revocation window: an access token is valid for an hour, a refresh token for a week.
+
+To cut every session immediately, change the signing secret and restart:
+
+```bash
+CHQ_AUTH_JWT_SECRET=$(openssl rand -hex 32)   # then restart the server
+```
+
+Every issued token stops verifying at once and everyone signs in again. This is the supported
+answer to "a token leaked" and to "I want everyone out now".
 
 ### Knowing whether backups work
 

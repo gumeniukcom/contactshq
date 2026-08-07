@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAuthConfigValidate(t *testing.T) {
@@ -69,7 +70,14 @@ func TestServerConfigValidate_TrustedProxies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ServerConfig{TrustedProxies: tt.proxies}.validate()
+			// The limits are part of a valid ServerConfig now; this test is about the
+			// proxy list, so they are filled with workable values.
+			cfg := ServerConfig{
+				TrustedProxies: tt.proxies,
+				MaxBodyBytes:   32 << 20,
+				MaxImportBytes: 32 << 20,
+			}
+			err := cfg.validate()
 			if tt.wantErr {
 				if !errors.Is(err, ErrInvalidTrustedProxy) {
 					t.Fatalf("validate() = %v, want ErrInvalidTrustedProxy", err)
@@ -108,5 +116,65 @@ func TestSplitList(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A per-route limit above the global one is a promise the server cannot keep: fasthttp
+// rejects the request before the route's middleware ever runs.
+func TestServerConfigValidate_Limits(t *testing.T) {
+	base := func() ServerConfig {
+		return ServerConfig{MaxBodyBytes: 32 << 20, MaxImportBytes: 8 << 20}
+	}
+
+	if err := base().validate(); err != nil {
+		t.Fatalf("a sane configuration was rejected: %v", err)
+	}
+
+	tooBig := base()
+	tooBig.MaxImportBytes = tooBig.MaxBodyBytes + 1
+	if err := tooBig.validate(); !errors.Is(err, ErrInvalidLimit) {
+		t.Fatalf("validate() = %v, want ErrInvalidLimit", err)
+	}
+
+	zero := base()
+	zero.MaxBodyBytes = 0
+	if err := zero.validate(); !errors.Is(err, ErrInvalidLimit) {
+		t.Fatalf("validate() = %v, want ErrInvalidLimit", err)
+	}
+
+	// Restore and import run synchronously inside the request; a write deadline truncates an
+	// operation that is still mutating contacts, so the server refuses to start with one.
+	withWrite := base()
+	withWrite.WriteTimeout = time.Second
+	if err := withWrite.validate(); !errors.Is(err, ErrInvalidLimit) {
+		t.Fatalf("validate() = %v, want ErrInvalidLimit for a non-zero write timeout", err)
+	}
+}
+
+func TestCardDAVConfigValidate(t *testing.T) {
+	if err := (CardDAVConfig{MaxResourceBytes: 1 << 20}).validate(); err != nil {
+		t.Fatalf("a sane configuration was rejected: %v", err)
+	}
+	if err := (CardDAVConfig{}).validate(); !errors.Is(err, ErrInvalidLimit) {
+		t.Fatalf("validate() = %v, want ErrInvalidLimit", err)
+	}
+}
+
+// The token lifetime is the revocation window: there is no denylist, so a leaked token is
+// valid until it expires. These defaults are a deliberate choice, not an accident, and the
+// SPA's refresh interceptor is what makes the short one invisible to users.
+func TestDefaults_TokenLifetimes(t *testing.T) {
+	t.Setenv("CHQ_AUTH_JWT_SECRET", validSecret)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+
+	if cfg.Auth.TokenTTL != time.Hour {
+		t.Errorf("auth.token_ttl = %v, want 1h", cfg.Auth.TokenTTL)
+	}
+	if cfg.Auth.RefreshTTL != 168*time.Hour {
+		t.Errorf("auth.refresh_ttl = %v, want 168h", cfg.Auth.RefreshTTL)
 	}
 }

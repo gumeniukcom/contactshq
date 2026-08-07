@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 
 	"github.com/gumeniukcom/contactshq/internal/handler"
+	"github.com/gumeniukcom/contactshq/internal/repository"
 )
 
 func newTestDB(t *testing.T) *bun.DB {
@@ -76,4 +78,55 @@ func TestHealth_WithoutDatabaseStillReportsVersion(t *testing.T) {
 	assert.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "ok", body["status"])
 	assert.NotContains(t, body, "database")
+}
+
+// The first thing an operator asks after an upgrade is which schema is actually applied.
+func TestHealth_ReportsSchemaVersion(t *testing.T) {
+	// One connection: with a plain ":memory:" pool the migration and the query land on
+	// different databases, and schema_migrations would not exist for the reader.
+	db := newMigratedTestDB(t)
+
+	code, body := getHealth(t, handler.Services{DB: db})
+
+	require.Equal(t, fiber.StatusOK, code)
+	version, ok := body["schema_version"].(string)
+	require.True(t, ok, "schema_version must be present: %v", body)
+
+	want, err := repository.SchemaVersion(context.Background(), db)
+	require.NoError(t, err)
+	require.Equal(t, want, version)
+	require.NotEmpty(t, version, "migrations have run, so there is a version")
+}
+
+// A full queue must not turn the health check red: the container would be restarted, and a
+// restart is exactly what loses the queued jobs.
+func TestHealth_QueueDepthDoesNotFailTheCheck(t *testing.T) {
+	db := newMigratedTestDB(t)
+
+	code, body := getHealth(t, handler.Services{DB: db, Worker: &fullQueueWorker{}})
+
+	require.Equal(t, fiber.StatusOK, code)
+	require.Equal(t, "ok", body["status"])
+	require.Equal(t, float64(100), body["queue_depth"])
+}
+
+type fullQueueWorker struct{}
+
+func (fullQueueWorker) Enqueue(context.Context, string, any) error { return nil }
+func (fullQueueWorker) Start(context.Context) error                { return nil }
+func (fullQueueWorker) Stop(context.Context) error                 { return nil }
+func (fullQueueWorker) QueueDepth() int                            { return 100 }
+
+// newMigratedTestDB returns a migrated in-memory database on a single connection.
+func newMigratedTestDB(t *testing.T) *bun.DB {
+	t.Helper()
+
+	sqldb, err := sql.Open(sqliteshim.ShimName, ":memory:?_pragma=foreign_keys(1)")
+	require.NoError(t, err)
+	sqldb.SetMaxOpenConns(1)
+
+	db := bun.NewDB(sqldb, sqlitedialect.New())
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, repository.Migrate(context.Background(), db))
+	return db
 }

@@ -7,14 +7,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
+	chqsync "github.com/gumeniukcom/contactshq/internal/sync"
 )
 
 type CredentialHandler struct {
 	repo repository.ProviderConnectionRepository
+	// endpointPolicy decides which provider URLs this deployment will fetch.
+	endpointPolicy chqsync.EndpointPolicy
 }
 
-func NewCredentialHandler(repo repository.ProviderConnectionRepository) *CredentialHandler {
-	return &CredentialHandler{repo: repo}
+func NewCredentialHandler(repo repository.ProviderConnectionRepository, policy chqsync.EndpointPolicy) *CredentialHandler {
+	return &CredentialHandler{repo: repo, endpointPolicy: policy}
 }
 
 type credentialRequest struct {
@@ -50,8 +53,8 @@ func (h *CredentialHandler) Create(c *fiber.Ctx) error {
 	if req.ProviderType == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "provider_type is required"})
 	}
-	if req.Endpoint == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "endpoint is required"})
+	if err := chqsync.ValidateProviderEndpoint(req.Endpoint, h.endpointPolicy); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 	if req.Name == "" {
 		req.Name = req.ProviderType + " server"
@@ -104,6 +107,12 @@ func (h *CredentialHandler) Update(c *fiber.Ctx) error {
 	var req credentialRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	// Checked on update as well: a stored credential can be edited into a forbidden endpoint
+	// just as easily as it can be created with one.
+	if err := chqsync.ValidateProviderEndpoint(req.Endpoint, h.endpointPolicy); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	conn.Name = req.Name

@@ -117,3 +117,18 @@ func applyMigration(ctx context.Context, db *bun.DB, version, migrationSQL strin
 		return nil
 	})
 }
+
+// SchemaVersion is the latest migration applied, which is the question an operator asks first
+// after an upgrade.
+//
+// A string, because that is what the column holds: the migration's filename stem, such as
+// "025_backup_runs". The names are zero-padded, so the lexicographic maximum is also the
+// numeric one.
+func SchemaVersion(ctx context.Context, db *bun.DB) (string, error) {
+	var version string
+	err := db.NewSelect().
+		TableExpr("schema_migrations").
+		ColumnExpr("COALESCE(MAX(version), '')").
+		Scan(ctx, &version)
+	return version, err
+}

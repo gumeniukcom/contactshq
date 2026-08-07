@@ -47,11 +47,16 @@ func NewCardDAVClientProviderWithHTTPClient(ctx context.Context, endpoint string
 // withTimeout returns a client that is guaranteed to have a request deadline. The caller may
 // own the client (an OAuth2 one, say), so a copy is timed out rather than the original.
 func withTimeout(c *http.Client) *http.Client {
-	if c.Timeout > 0 {
+	if c.Timeout > 0 && c.CheckRedirect != nil {
 		return c
 	}
 	clone := *c
-	clone.Timeout = defaultHTTPTimeout
+	if clone.Timeout == 0 {
+		clone.Timeout = defaultHTTPTimeout
+	}
+	if clone.CheckRedirect == nil {
+		clone.CheckRedirect = redirectPolicy
+	}
 	return &clone
 }
 
@@ -104,6 +109,10 @@ func NewCardDAVClientProviderWithOptions(ctx context.Context, endpoint, username
 	}
 	httpClient := &http.Client{
 		Timeout: defaultHTTPTimeout,
+		// Validating the URL a user typed is not enough on its own: a permitted host can
+		// answer 302 Location: http://169.254.169.254/ and the client would follow it.
+		// Discovery does exactly this — resolveWellKnown issues a GET and reads the final URL.
+		CheckRedirect: redirectPolicy,
 		Transport: &basicAuthTransport{
 			username: username,
 			password: password,
@@ -431,4 +440,12 @@ func extractUIDFromPath(path string) string {
 // comma after the bug was fixed in internal/vcard.
 func cardToString(card vcard.Card) string {
 	return vcardpkg.CardToString(card)
+}
+
+// BaseURLForTest exposes the resolved base URL so a test can assert where discovery ended up.
+func (p *CardDAVClientProvider) BaseURLForTest() string {
+	if p.baseURL == nil {
+		return ""
+	}
+	return p.baseURL.String()
 }

@@ -58,6 +58,14 @@ func testValueFor(t *testing.T, key string, field reflect.Value) (envValue strin
 	if key == "database.driver" {
 		return "postgres", "postgres"
 	}
+	// The size limits are cross-checked against each other, so the probe values have to be
+	// consistent: a per-route limit above the global one is rejected at load.
+	if key == "server.max_body_bytes" {
+		return "67108864", "67108864"
+	}
+	if key == "server.max_import_bytes" {
+		return "4321", "4321"
+	}
 
 	switch field.Interface().(type) {
 	case time.Duration:

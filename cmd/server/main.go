@@ -128,7 +128,9 @@ func main() {
 	// Sync engine & pipeline orchestrator
 	syncEngine := chqsync.NewEngineWithAllRepos(syncRepo, syncRunRepo, syncConflictRepo, logger).
 		WithCursorStore(syncCursorRepo)
-	orchestrator := chqsync.NewPipelineOrchestrator(syncEngine, contactRepo, abRepo, pipelineRepo, providerConnRepo, googleOAuth, logger)
+	endpointPolicy := chqsync.EndpointPolicy{AllowInsecure: cfg.Sync.AllowInsecureEndpoints}
+	orchestrator := chqsync.NewPipelineOrchestrator(syncEngine, contactRepo, abRepo, pipelineRepo, providerConnRepo, googleOAuth, logger).
+		WithEndpointPolicy(endpointPolicy)
 
 	// Worker
 	gWorker := worker.NewGoroutineWorker(4, logger)
@@ -201,8 +203,22 @@ func main() {
 	// else, so the CardDAV verbs must be registered here or the /dav mount is
 	// unreachable to every client.
 	fiberCfg := fiber.Config{
-		AppName:        "ContactsHQ",
-		BodyLimit:      10 * 1024 * 1024, // 10MB
+		AppName: "ContactsHQ",
+		// The real ceiling. fasthttp reads a whole body into memory before a handler runs, so
+		// with N concurrent uploads the worst case is N × this. The per-route middleware in
+		// handler.Register narrows it for endpoints where a large body is meaningless, but
+		// that is policy — this number is the only actual bound.
+		BodyLimit: cfg.Server.MaxBodyBytes,
+		// Bounds how long a client may take to send a request; without it a connection
+		// dribbling a byte at a time holds a worker indefinitely.
+		ReadTimeout: cfg.Server.ReadTimeout,
+		IdleTimeout: cfg.Server.IdleTimeout,
+		// WriteTimeout is deliberately absent, and config validation refuses to start with a
+		// non-zero one: POST /backup/restore/:id and POST /import/{vcard,csv} run
+		// synchronously inside the request — parsing the whole file, deleting, then inserting
+		// in a loop — so any write deadline truncates an operation that is still mutating
+		// contacts. It can be reconsidered only once EVERY long operation runs on the queue,
+		// restore and import included.
 		ErrorHandler:   newErrorHandler(logger),
 		RequestMethods: append(fiber.DefaultMethods, webdavMethods...),
 	}
@@ -252,6 +268,11 @@ func main() {
 		SyncConflict:      syncConflictService,
 		DB:                db,
 		Logger:            logger,
+		EndpointPolicy:    endpointPolicy,
+		Limits: middleware.BodyLimits{
+			Default:   apiBodyLimit(cfg.Server.MaxBodyBytes),
+			Overrides: map[string]int{"/import/": cfg.Server.MaxImportBytes},
+		},
 	})
 
 	// RFC 6764 — CardDAV service discovery
@@ -262,7 +283,8 @@ func main() {
 	})
 
 	// CardDAV server
-	davBackend := chqcarddav.NewBackend(userRepo, abRepo, contactRepo, davPrefix)
+	davBackend := chqcarddav.NewBackend(userRepo, abRepo, contactRepo, davPrefix).
+		WithMaxResourceSize(int64(cfg.CardDAV.MaxResourceBytes))
 	// The same proxy list Fiber uses: /dav is mounted through adaptor.HTTPHandler and sees a
 	// net/http request, so Fiber's own trusted-proxy handling never reaches it.
 	davServer := chqcarddav.NewServerWithTrustedProxies(
@@ -355,8 +377,14 @@ func newErrorHandler(logger *zap.Logger) fiber.ErrorHandler {
 			zap.String("path", c.Path()),
 			zap.Error(err),
 		}
-		// Full request-id plumbing is a separate task; honour one if a proxy supplied it.
-		if rid := c.Get("X-Request-ID"); rid != "" {
+		// The same id the request logger assigned and echoed to the client, so a user can
+		// quote it and the log line is findable. Falls back to the header for a failure that
+		// happens before the logger runs.
+		rid := middleware.RequestIDFrom(c)
+		if rid == "" {
+			rid = c.Get(middleware.RequestIDHeader)
+		}
+		if rid != "" {
 			fields = append(fields, zap.String("request_id", rid))
 		}
 		logger.Error("unhandled request error", fields...)
@@ -364,4 +392,16 @@ func newErrorHandler(logger *zap.Logger) fiber.ErrorHandler {
 		return c.Status(fiber.StatusInternalServerError).
 			JSON(fiber.Map{"error": "internal server error"})
 	}
+}
+
+// apiBodyLimit narrows the global ceiling for ordinary JSON endpoints.
+//
+// A contact, a settings object or a login is kilobytes; letting them be as large as an import
+// upload only widens what a client can make the server allocate before anything looks at it.
+func apiBodyLimit(maxBodyBytes int) int {
+	const apiCap = 2 << 20 // 2 MiB — generous for a contact with an embedded photo
+	if maxBodyBytes < apiCap {
+		return maxBodyBytes
+	}
+	return apiCap
 }

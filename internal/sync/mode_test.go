@@ -64,7 +64,7 @@ func TestValidateStep(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := chqsync.ValidateStep(tt.source, tt.dest)
+			err := chqsync.ValidateStep(tt.source, "", tt.dest, "", chqsync.EndpointPolicy{})
 
 			if tt.wantErr {
 				if !errors.Is(err, chqsync.ErrInvalidStep) {

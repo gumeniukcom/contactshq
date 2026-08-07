@@ -42,6 +42,12 @@ func (s *ImporterService) ImportVCard(ctx context.Context, userID string, data s
 	cards := vcardpkg.SplitVCards(data)
 
 	for _, card := range cards {
+		// A cancelled request should stop the work rather than parse a file nobody is
+		// waiting for. Safe here: nothing has been written yet.
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+
 		card = strings.TrimSpace(card)
 		if card == "" {
 			continue
@@ -122,6 +128,10 @@ func (s *ImporterService) ImportCSV(ctx context.Context, userID string, data str
 	}
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+
 		record, err := reader.Read()
 		if err == io.EOF {
 			break
