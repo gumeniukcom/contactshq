@@ -166,8 +166,11 @@ If your CardDAV server is reachable only over plain http, opt in explicitly:
 CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true
 ```
 
-> **Upgrading:** an instance already syncing over `http://` will fail every run until this is
-> set. Prefer fixing the transport where you can — the password travels in the request.
+> **Upgrading:** a step with its endpoint written inline will fail every run until this is
+> set. A step that takes its endpoint from a credential stored before 0.4.0 keeps working —
+> the check bounds what can be entered and does not rewrite rows that already exist. Saving
+> that credential again puts it through the check.
+> Prefer fixing the transport where you can: the password travels in every request.
 
 ### Forgotten password
 

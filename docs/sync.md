@@ -16,6 +16,38 @@ which safeguards protect your data.
 Every pipeline step pairs one external provider with your internal address book. The
 internal book is always the destination; the direction decides which way contacts move.
 
+## Where a pipeline may connect
+
+A sync request carries the provider's username and password, so the endpoint is checked
+before anything is fetched. Accepted: an absolute `https` URL with a host and no credentials
+in its userinfo. Refused: `http` (unless you opt in), `file://`, `gopher://`, a bare hostname,
+and a URL of the form `https://user:pw@host/` — those credentials would be logged and stored
+alongside the endpoint.
+
+The check runs at every point an endpoint can enter the system, because there are four and
+validating only the obvious one leaves the rest open:
+
+1. CardDAV connect,
+2. a stored credential,
+3. the endpoint inside a pipeline step's provider config,
+4. an endpoint posted to a manual trigger.
+
+Private and link-local addresses are **not** filtered. A CardDAV server on the local network
+is an ordinary, supported setup, and filtering addresses would not close the hole it appears
+to: a permitted public host can answer `302 Location: http://169.254.169.254/` and the client
+would follow it. That is handled where it actually happens — the sync client follows at most
+**three** redirects and refuses to cross to a different host. Same-host redirects still work,
+which matters because that is how many servers implement `.well-known/carddav`.
+
+To sync against a server reachable only over plain http:
+
+```bash
+CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true
+```
+
+Prefer fixing the transport where you can. The setting is all-or-nothing, and the password
+travels in every request the pipeline makes.
+
 ## Directions
 
 A step has one of three directions:
@@ -86,6 +118,15 @@ configuration is needed; clients negotiate it automatically.
   the provider assigns it (Google returns its own `resourceName`), not the local id, so
   the next run does not mistake it for a new contact and duplicate or delete it.
 
+- **A silent provider cannot park a worker.** Every sync HTTP request has a 30-second
+  timeout. A host that accepted the connection and then said nothing used to hold its worker
+  goroutine forever; four of those and scheduled backups and duplicate detection stopped too,
+  because they share the queue.
+
+- **Run history is pruned.** `sync_runs` gains a row per pipeline execution and would grow
+  without bound. Rows older than `CHQ_SYNC_RUNS_RETENTION_DAYS` (default 90) are removed at
+  startup.
+
 ## Limitations
 
 - The Google sync-token and conditional-write paths are covered by unit tests but have not
@@ -96,6 +137,25 @@ configuration is needed; clients negotiate it automatically.
   reconciles any drift.
 - The job queue is in-memory: a sync scheduled moments before a restart is drained on
   shutdown, but a hard kill (SIGKILL) drops it. It runs on the next scheduled tick.
+
+## Things that moved in v0.4.0
+
+**Provider endpoints are validated, and plain http is refused by default.** See
+[Where a pipeline may connect](#where-a-pipeline-may-connect) for what the check accepts.
+
+What this means for a pipeline that already exists depends on where its endpoint is written:
+
+- **Inline in the step's config** — the endpoint is re-checked on every run, so a step
+  pointing at `http://` fails until `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true` is set. The
+  failure is recorded against that step alone; other steps in the same pipeline still run.
+- **In a stored credential** (`credential_id`) — the row is used as it stands. Nothing
+  rewrites your database on upgrade, and the run-time path resolves the credential *after*
+  the step check, so a credential saved before 0.4.0 keeps working over http. Saving or
+  editing it puts it through the check, and it cannot be stored again without the opt-in.
+
+So the validation bounds what can be *entered*, and grandfathers what was already there.
+If you want the older rows held to the same rule, open each stored credential and save it:
+one that no longer passes will tell you so.
 
 ## Things that moved in v0.3.0
 
