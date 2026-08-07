@@ -44,10 +44,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The release body is the hand-written CHANGELOG section, not a list of commit SHAs.
+      # Generated here rather than only in goreleaser's before-hooks so the file is certain to
+      # exist by the time --release-notes is read.
+      - name: Build release notes from the CHANGELOG
+        run: ./scripts/release-notes.sh "${GITHUB_REF_NAME}"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes=.release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

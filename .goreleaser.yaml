@@ -3,6 +3,11 @@ version: 2
 before:
   hooks:
     - make build-frontend
+    # Writes .release-notes.md from the CHANGELOG section for this tag, for the
+    # --release-notes flag the release workflow passes. Fails the release if the section is
+    # missing, rather than publishing an empty body. The workflow generates it again before
+    # invoking goreleaser, so the file exists no matter when the flag is read.
+    - ./scripts/release-notes.sh
 
 builds:
   - id: contactshq
@@ -20,7 +25,7 @@ builds:
 
 archives:
   - id: contactshq
-    builds:
+    ids:
       - contactshq
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:

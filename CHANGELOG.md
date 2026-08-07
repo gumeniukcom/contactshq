@@ -6,6 +6,77 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 uses [Semantic Versioning](https://semver.org/). While the major version is `0`, breaking
 changes may appear in a minor release.
 
+## [0.4.0] — 2026-08-07
+
+Limits, timeouts, and a request-forgery surface closed. Small in code, but three of these
+changes will refuse something your deployment currently does, so read **Breaking** before
+upgrading.
+
+### ⚠️ Breaking
+
+- **A provider endpoint over plain `http://` is now refused.** A sync request carries the
+  provider's username and password, and until now the URL was never checked at all: `file://`,
+  `gopher://` and a bare hostname were equally acceptable. Validation runs at all four places
+  an endpoint can enter — CardDAV connect, a stored credential, the endpoint inside a pipeline
+  step's config, and the one posted to a manual trigger.
+  **If you sync against a CardDAV server on your LAN over http, set
+  `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true` before upgrading**, or every run will fail.
+  Private addresses themselves are *not* filtered: a CardDAV server on the local network is a
+  supported setup, and the redirect rule below is what actually prevents the pivot that
+  filtering them would target.
+- **`server.write_timeout` must be `0`, and the server refuses to start otherwise.** Restore
+  and import run synchronously inside the request; a write deadline truncates an operation that
+  is still changing contacts. If you set this key, remove it.
+- **Access tokens now live 1 hour instead of 24, and refresh tokens 7 days instead of 30.**
+  The web UI refreshes transparently. A script that grabs a token and reuses it for a day will
+  need to call `POST /auth/refresh`; a session idle for more than a week now requires a login.
+- **Request bodies are capped at 32 MiB** (`CHQ_SERVER_MAX_BODY_BYTES`), imports likewise, and
+  a single CardDAV card at 1 MiB. A larger upload gets a `413` instead of being read into
+  memory. Raise the limits if you import bigger files — but note the cap is what bounds memory:
+  fasthttp reads a whole body before any handler runs, so N concurrent uploads cost N × that.
+
+### Added
+
+- **Every request gets an id**, reused from `X-Request-Id` when a proxy supplied one and minted
+  otherwise, echoed in the response header and attached to the log line. Without it there was
+  no way to connect "it failed at 14:32" to anything in the log.
+- **`GET /health` reports the schema version** (`025_backup_runs`), which is the first question
+  after an upgrade.
+- `read_timeout` (30s) and `idle_timeout` (120s), so a connection that opens and says nothing
+  no longer occupies the server indefinitely.
+
+### Changed
+
+- **A successful `/health` check is no longer logged.** Docker polls it every 30 seconds, so an
+  idle container's log consisted of nothing else and a real line was buried among thousands. A
+  *failing* check is always logged — that is exactly when it matters.
+- The sync HTTP client follows at most three redirects and refuses to cross hosts. Validating
+  the URL a user typed does not stop a permitted host answering `302 → 169.254.169.254`.
+  Same-host redirects still work, which is how many servers implement `.well-known`.
+
+### Configuration
+
+New keys, all optional:
+
+| Env variable | Default | Purpose |
+|---|---|---|
+| `CHQ_SERVER_MAX_BODY_BYTES` | `33554432` | Largest accepted request body |
+| `CHQ_SERVER_MAX_IMPORT_BYTES` | `33554432` | Largest accepted import, must not exceed the above |
+| `CHQ_SERVER_READ_TIMEOUT` | `30s` | Deadline for reading a request |
+| `CHQ_SERVER_IDLE_TIMEOUT` | `120s` | How long an idle keep-alive connection is held |
+| `CHQ_CARDDAV_MAX_RESOURCE_BYTES` | `1048576` | Largest accepted single vCard |
+| `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS` | `false` | Permit `http://` provider endpoints |
+
+Changed defaults: `CHQ_AUTH_TOKEN_TTL` `24h` → `1h`, `CHQ_AUTH_REFRESH_TTL` `720h` → `168h`.
+
+### Upgrading
+
+No migrations. Before starting the new version:
+
+1. Set `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true` if any provider endpoint is plain `http`.
+2. Remove `server.write_timeout` if you set it — the server will not start with it.
+3. Raise `CHQ_SERVER_MAX_IMPORT_BYTES` if you import files larger than 32 MiB.
+
 ## [0.3.0] — 2026-08-06
 
 A hardening and observability release. Two defects in here broke shipped features outright,
@@ -144,6 +215,7 @@ writes, and trusted-proxy support for per-client rate limiting.
 
 First tagged release.
 
+[0.4.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.4.0
 [0.3.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.3.0
 [0.2.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.2.0
 [0.1.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.1.0

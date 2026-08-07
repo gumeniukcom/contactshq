@@ -47,3 +47,4 @@ internal/web/static/spa/*
 # Dev tools
 .claude/
 .serena/
+.release-notes.md
