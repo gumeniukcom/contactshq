@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 uses [Semantic Versioning](https://semver.org/). While the major version is `0`, breaking
 changes may appear in a minor release.
 
-## [Unreleased]
+## [0.5.0] — 2026-08-08
 
 ### ⚠️ Breaking
 
@@ -366,7 +366,8 @@ writes, and trusted-proxy support for per-client rate limiting.
 
 First tagged release.
 
-[Unreleased]: https://github.com/gumeniukcom/contactshq/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/gumeniukcom/contactshq/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.5.0
 [0.4.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.4.0
 [0.3.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.3.0
 [0.2.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.2.0

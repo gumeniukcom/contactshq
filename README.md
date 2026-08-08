@@ -2,9 +2,10 @@
 
 A self-hosted contact management hub with a CardDAV server, multi-provider sync engine, and a modern web UI. Designed to be the single source of truth for all your contacts — no matter where they originally live.
 
-Current release: **v0.4.0**. [CHANGELOG.md](CHANGELOG.md) lists what changed and what has to
-be set *before* upgrading — 0.4.0 refuses plain-http provider endpoints and will not start
-with a write timeout configured.
+Current release: **v0.5.0**. [CHANGELOG.md](CHANGELOG.md) lists what changed and what has to
+be checked *before* upgrading — 0.5.0 starts enforcing the CardDAV card-size limit it had only
+been advertising, which can make an oversized contact read-only from every device, and refuses
+`http://` sync credentials stored before 0.4.0.
 
 ## What it does
 
