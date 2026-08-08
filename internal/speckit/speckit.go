@@ -77,34 +77,49 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// trackedFiles is the audit surface: what git records, not what happens to be on disk. Using
-// git rather than a filesystem walk keeps generated output (web/node_modules,
-// internal/web/static/spa) and per-machine state (.specify/feature.json) from being demanded
-// of the specs — those are ignored, and ignoring them is already a decision recorded elsewhere.
+// trackedFiles is the audit surface: everything git would keep, which is tracked files plus
+// untracked ones that are not ignored.
+//
+// Both halves matter. Asking git rather than walking the filesystem keeps generated output
+// (web/node_modules, internal/web/static/spa) and per-machine state (.specify/feature.json) from
+// being demanded of the specs — those are ignored, and ignoring them is a decision already
+// recorded elsewhere. Including the untracked-but-unignored half is what makes the checks useful
+// while work is still in progress: a new file is claimed, and a new test counts as an enforcer,
+// before anything is staged. Without it the gate reported seven freshly written tests as missing
+// purely because they had not been added yet.
 func trackedFiles(t *testing.T, root string) []string {
 	t.Helper()
 
-	cmd := exec.Command("git", "ls-files", "-z")
-	cmd.Dir = root
-	out, err := cmd.Output()
-	if err != nil {
-		t.Skipf("git ls-files unavailable (%v) — the ownership map cannot be audited here", err)
-	}
-
+	seen := map[string]bool{}
 	var files []string
-	for _, f := range strings.Split(string(out), "\x00") {
-		if f == "" {
-			continue
+
+	for _, args := range [][]string{
+		{"ls-files", "-z"},
+		{"ls-files", "-z", "--others", "--exclude-standard"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		out, err := cmd.Output()
+		if err != nil {
+			t.Skipf("git %v unavailable (%v) — the ownership map cannot be audited here", args, err)
 		}
-		for _, prefix := range auditedPrefixes {
-			if strings.HasPrefix(f, prefix) {
-				files = append(files, f)
-				break
+
+		for _, f := range strings.Split(string(out), "\x00") {
+			if f == "" || seen[f] {
+				continue
+			}
+			for _, prefix := range auditedPrefixes {
+				if strings.HasPrefix(f, prefix) {
+					seen[f] = true
+					files = append(files, f)
+					break
+				}
 			}
 		}
 	}
+
 	if len(files) == 0 {
-		t.Fatal("no tracked files under the audited prefixes — the audit surface cannot be empty")
+		t.Fatal("no files under the audited prefixes — the audit surface cannot be empty")
 	}
 	return files
 }
