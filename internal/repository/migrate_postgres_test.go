@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"reflect"
 	"sort"
 	"testing"
 	"time"
@@ -348,4 +349,73 @@ func TestPostgresPotentialDuplicateUniqueIndex(t *testing.T) {
 	_, total, err := repo.ListByUser(ctx, "u1", repository.StatusAll, 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
+}
+
+// TestPostgresListDedupValues is the only PostgreSQL coverage the dedup value projection gets:
+// CI runs `go test ./internal/repository/ -run TestPostgres`, so a test outside package
+// `repository` or without this name prefix never touches PostgreSQL at all.
+//
+// Two things are asserted, and both are the point of the method rather than of the query
+// engine: the two projections are scoped to one address book, and they carry nothing but a
+// contact id and a value. The second matters because the whole reason this is a side read
+// instead of Relation("Emails") is that a relation load drags vcard_data and photo_uri along.
+func TestPostgresListDedupValues(t *testing.T) {
+	db := setupPostgres(t)
+	ctx := context.Background()
+	require.NoError(t, repository.Migrate(ctx, db))
+
+	_, err := db.NewInsert().Model(&domain.User{
+		ID: "u1", Email: "owner@example.com", PasswordHash: "x", Role: "admin",
+	}).Exec(ctx)
+	require.NoError(t, err)
+	_, err = db.NewInsert().Model(&domain.User{
+		ID: "u2", Email: "other@example.com", PasswordHash: "x", Role: "user",
+	}).Exec(ctx)
+	require.NoError(t, err)
+	for _, ab := range []struct{ id, user string }{{"ab1", "u1"}, {"ab2", "u2"}} {
+		_, err = db.NewInsert().Model(&domain.AddressBook{ID: ab.id, UserID: ab.user, Name: "Contacts"}).Exec(ctx)
+		require.NoError(t, err)
+	}
+
+	repo := repository.NewBunContactRepository(db)
+
+	// Card data on the row, so a projection that widened to whole contacts would show it.
+	mine := newContact("ab1")
+	mine.VCardData = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Jane Doe\r\nEND:VCARD\r\n"
+	mine.PhotoURI = "data:image/png;base64,iVBORw0KGgo="
+	require.NoError(t, repo.Save(ctx, mine, domain.ChildRecords{
+		Emails: []*domain.ContactEmail{
+			{Value: "jane@example.com", Type: "work"},
+			{Value: "jane.doe@example.org", Type: "home"},
+		},
+		Phones: []*domain.ContactPhone{{Value: "+1 (555) 9000", Type: "cell"}},
+	}))
+
+	// Another user's address book, with values that must not leak into the result.
+	theirs := newContact("ab2")
+	require.NoError(t, repo.Save(ctx, theirs, domain.ChildRecords{
+		Emails: []*domain.ContactEmail{{Value: "someone@elsewhere.example", Type: "work"}},
+		Phones: []*domain.ContactPhone{{Value: "+1 555 1111", Type: "cell"}},
+	}))
+
+	emails, phones, err := repo.ListDedupValues(ctx, "ab1")
+	require.NoError(t, err)
+
+	gotEmails := make([]string, 0, len(emails))
+	for _, e := range emails {
+		assert.Equal(t, mine.ID, e.ContactID, "the projection is scoped to one address book")
+		gotEmails = append(gotEmails, e.Value)
+	}
+	sort.Strings(gotEmails)
+	assert.Equal(t, []string{"jane.doe@example.org", "jane@example.com"}, gotEmails)
+
+	require.Len(t, phones, 1)
+	assert.Equal(t, mine.ID, phones[0].ContactID)
+	assert.Equal(t, "+1 (555) 9000", phones[0].Value, "normalisation belongs to the detector")
+
+	// The projection is two columns by construction. Widening the struct would silently
+	// widen every read, which is exactly what the narrow-read comment on ListForDedup and
+	// ListDedupValues exists to prevent.
+	assert.Equal(t, 2, reflect.TypeOf(domain.ContactValueRef{}).NumField(),
+		"ContactValueRef must stay a two-column projection: no card data")
 }

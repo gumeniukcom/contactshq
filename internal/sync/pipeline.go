@@ -184,23 +184,38 @@ func (o *PipelineOrchestrator) createProvider(ctx context.Context, userID, provi
 		if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 			return nil, fmt.Errorf("parse carddav config: %w", err)
 		}
+		// The credential is resolved into cfg first, and only then validated: ValidateStep
+		// runs before this function on every run, but it can only see an endpoint written
+		// inline in the step's JSON. A stored credential's endpoint is invisible to it, and
+		// one saved before v0.4.0 was never checked when it was written.
+		var oauthCred *domain.ProviderConnection
 		if cfg.CredentialID != "" && o.credRepo != nil {
 			cred, err := o.credRepo.GetByID(ctx, cfg.CredentialID)
 			if err != nil || cred == nil || cred.UserID != userID {
 				return nil, fmt.Errorf("credential %s not found", cfg.CredentialID)
 			}
-			// OAuth2 credential → use authenticated HTTP client for CardDAV
-			if cred.AccessToken != "" && o.googleOAuth != nil {
-				httpClient, err := o.googleOAuth.GetHTTPClient(ctx, cred)
-				if err != nil {
-					return nil, fmt.Errorf("carddav oauth http client: %w", err)
-				}
-				return NewCardDAVClientProviderWithHTTPClient(ctx, cred.Endpoint, httpClient)
-			}
 			cfg.Endpoint = cred.Endpoint
 			cfg.Username = cred.Username
 			cfg.Password = cred.Password
 			cfg.SkipTLSVerify = cred.SkipTLSVerify
+			// OAuth2 credential → use an authenticated HTTP client for CardDAV.
+			if cred.AccessToken != "" && o.googleOAuth != nil {
+				oauthCred = cred
+			}
+		}
+		// Ordering is load-bearing: GetHTTPClient below performs a token exchange, so the
+		// endpoint has to be judged before that and not merely before the CardDAV dial.
+		// Note this refuses an insecure transport; it does not make a permitted one
+		// confidential — skip_tls_verify is still honoured a few lines down.
+		if err := ValidateProviderEndpoint(cfg.Endpoint, o.endpointPolicy); err != nil {
+			return nil, err
+		}
+		if oauthCred != nil {
+			httpClient, err := o.googleOAuth.GetHTTPClient(ctx, oauthCred)
+			if err != nil {
+				return nil, fmt.Errorf("carddav oauth http client: %w", err)
+			}
+			return NewCardDAVClientProviderWithHTTPClient(ctx, cfg.Endpoint, httpClient)
 		}
 		return NewCardDAVClientProviderWithOptions(ctx, cfg.Endpoint, cfg.Username, cfg.Password, cfg.SkipTLSVerify)
 

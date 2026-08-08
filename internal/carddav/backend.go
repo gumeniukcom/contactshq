@@ -83,8 +83,9 @@ type Backend struct {
 	abRepo      repository.AddressBookRepository
 	contactRepo repository.ContactRepository
 	prefix      string
-	// maxResourceSize is advertised to clients as CARDDAV:max-resource-size. Zero means the
-	// property is omitted, which is how go-webdav behaved before.
+	// maxResourceSize is advertised to clients as CARDDAV:max-resource-size and enforced on
+	// PUT. Zero means the property is omitted and nothing is checked, which is how go-webdav
+	// behaved before; config refuses a non-positive value, so the server never runs that way.
 	maxResourceSize int64
 }
 
@@ -97,7 +98,7 @@ func NewBackend(userRepo repository.UserRepository, abRepo repository.AddressBoo
 	}
 }
 
-// WithMaxResourceSize advertises a per-card size limit to clients.
+// WithMaxResourceSize advertises a per-card size limit to clients and enforces it on PUT.
 func (b *Backend) WithMaxResourceSize(bytes int64) *Backend {
 	b.maxResourceSize = bytes
 	return b
@@ -271,6 +272,18 @@ func (b *Backend) PutAddressObject(ctx context.Context, path string, card vcard.
 	}
 
 	vcardData := cardToString(card)
+
+	// Policy, not protection: go-webdav has already read and decoded the body (its own
+	// max-resource-size check is a TODO at carddav/server.go:671), and the only limit that
+	// bounds memory is Fiber's global server.max_body_bytes, under which /dav is mounted.
+	// What this buys is that a card the collection advertised as too large does not reach
+	// the database, and the client is told why instead of being quietly obeyed.
+	if b.maxResourceSize > 0 && int64(len(vcardData)) > b.maxResourceSize {
+		return nil, webdav.NewHTTPError(http.StatusRequestEntityTooLarge,
+			fmt.Errorf("card is %d bytes, above the advertised maximum of %d",
+				len(vcardData), b.maxResourceSize))
+	}
+
 	h := sha256.Sum256([]byte(vcardData))
 	etag := hex.EncodeToString(h[:8])
 

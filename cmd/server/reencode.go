@@ -60,7 +60,7 @@ run rewrites the whole address book on Google or CardDAV.`)
 		return exitUsage
 	}
 
-	db, code := openCLIDatabase(stderr)
+	db, _, code := openCLIDatabase(stderr)
 	if code != exitOK {
 		return code
 	}

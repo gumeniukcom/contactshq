@@ -106,19 +106,72 @@ func (d *DuplicateDetector) Detect(ctx context.Context, userID string) (*Detecti
 		return nil, err
 	}
 
+	// The secondary emails and phone numbers, read as two narrow projections rather than
+	// joined onto the contact rows above. A person's second address identifies them exactly
+	// as well as their first, and the subset check that decides whether a one-click merge is
+	// lossless has always read these tables — so without them the list could prove a pair
+	// safe to collapse using values the detector was never shown.
+	childEmails, childPhones, err := d.contactRepo.ListDedupValues(ctx, ab.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	result := &DetectionResult{Checked: len(contacts)}
 	now := time.Now()
 
 	// key → contacts sharing it. "email:" and "phone:" are kept apart so an address that
 	// happens to look like a number cannot collide with one.
 	buckets := map[string][]candidate{}
+
+	// seen keeps one contact out of one bucket twice. It is not about self-pairs — those are
+	// skipped below and `best` dedups by pair anyway — but about len(bucket): almost every
+	// contact holds its primary address in BOTH the flat column and contact_emails, so
+	// without this each bucket would be twice its true size, doubling the inner loop and
+	// pushing scannable buckets past maxBucketSize, where they are dropped silently.
+	seen := make(map[string]struct{}, len(contacts)*2)
+	add := func(key string, cand candidate) {
+		dedupKey := key + "\x00" + cand.contact.ID
+		if _, ok := seen[dedupKey]; ok {
+			return
+		}
+		seen[dedupKey] = struct{}{}
+		buckets[key] = append(buckets[key], cand)
+	}
+
+	// byID lets the child values below find the candidate they belong to without a second
+	// pass over the contacts.
+	byID := make(map[string]candidate, len(contacts))
 	for _, c := range contacts {
 		cand := candidate{contact: c, name: strings.TrimSpace(c.FirstName + " " + c.LastName)}
+		byID[c.ID] = cand
 		if email := strings.ToLower(strings.TrimSpace(c.Email)); email != "" {
-			buckets["email:"+email] = append(buckets["email:"+email], cand)
+			add("email:"+email, cand)
 		}
 		if phone := normalizePhone(c.Phone); phone != "" {
-			buckets["phone:"+phone] = append(buckets["phone:"+phone], cand)
+			add("phone:"+phone, cand)
+		}
+	}
+
+	// Union, never replacement. Migration 014 created the child tables and, per constitution
+	// Principle I, backfilled nothing: a contact stored before it still has a populated
+	// `contacts.email` and no contact_emails row until something re-saves it. Bucketing on
+	// the child tables alone would quietly stop pairing every one of those.
+	for _, ref := range childEmails {
+		cand, ok := byID[ref.ContactID]
+		if !ok {
+			continue
+		}
+		if email := strings.ToLower(strings.TrimSpace(ref.Value)); email != "" {
+			add("email:"+email, cand)
+		}
+	}
+	for _, ref := range childPhones {
+		cand, ok := byID[ref.ContactID]
+		if !ok {
+			continue
+		}
+		if phone := normalizePhone(ref.Value); phone != "" {
+			add("phone:"+phone, cand)
 		}
 	}
 

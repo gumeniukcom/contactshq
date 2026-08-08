@@ -14,7 +14,7 @@ with a write timeout configured.
 - **Incremental sync** — providers that support it (Google via a sync token, CardDAV via RFC 6578) send only what changed since the last run; exports write conditionally so a concurrent edit becomes a conflict rather than being overwritten
 - **Three-way merge** — when a contact is modified both locally and on a remote source, the engine merges changes field-by-field automatically; unresolvable conflicts are queued for manual review
 - **Conflict resolution UI** — inspect field-level diffs between base/local/remote versions and resolve each field individually
-- **Duplicate detection** — pairs are found by a shared email address or a normalised phone number, and each pair says which one it was ("Same email: a@b.c") rather than showing a percentage
+- **Duplicate detection** — pairs are found by a shared email address or a normalised phone number, counting *every* address and number a contact holds rather than only its first, and each pair says which one it was ("Same email: a@b.c") rather than showing a percentage. A value shared by more than 500 contacts is treated as saying nothing about identity and its whole group is skipped, with a log warning and nothing in the UI
 - **Contact merge** — resolve the result value by value, so the work address from one record and the home address from the other is expressible; the merge is one transaction that transfers sync state, tombstones the discarded card, and keeps a 30-day history you can undo from by hand
 - **Import / Export** — import vCard (.vcf) and CSV files; export to vCard, CSV, or JSON
 - **Backup & restore** — scheduled or on-demand backups with optional gzip compression, configurable retention, and merge/replace restore modes
@@ -119,7 +119,7 @@ who knows the signing secret can mint tokens for any account, including admins.
 | `CHQ_SERVER_MAX_IMPORT_BYTES` | Largest import upload; must not exceed the above |
 | `CHQ_SERVER_READ_TIMEOUT` | How long a client may take to send a request (default `30s`) |
 | `CHQ_SERVER_IDLE_TIMEOUT` | How long an idle keep-alive connection is held (default `120s`) |
-| `CHQ_CARDDAV_MAX_RESOURCE_BYTES` | Largest single vCard (default `1048576`, 1 MiB) |
+| `CHQ_CARDDAV_MAX_RESOURCE_BYTES` | Largest single vCard a device may upload over CardDAV (default `1048576`, 1 MiB) |
 
 There is deliberately no write timeout, and the server refuses to start if you set one:
 restore and import run synchronously inside the request, so a write deadline would truncate
@@ -166,11 +166,14 @@ If your CardDAV server is reachable only over plain http, opt in explicitly:
 CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true
 ```
 
-> **Upgrading:** a step with its endpoint written inline will fail every run until this is
-> set. A step that takes its endpoint from a credential stored before 0.4.0 keeps working —
-> the check bounds what can be entered and does not rewrite rows that already exist. Saving
-> that credential again puts it through the check.
-> Prefer fixing the transport where you can: the password travels in every request.
+> **Upgrading:** a step will fail every run until this is set, whether its endpoint is written
+> inline or comes from a credential stored before 0.4.0 — a stored endpoint is validated when
+> the credential is resolved, immediately before the connection is made. Nothing rewrites rows
+> that already exist; the credential is still there and this variable brings it back.
+> The failure is recorded against that step alone, so other steps in the same pipeline still run.
+> Prefer fixing the transport where you can: the password travels in every request. Note also
+> that this variable and the per-credential `skip_tls_verify` box are different things — the
+> latter keeps `https://` in the URL while removing the protection it stands for.
 
 ### Forgotten password
 
@@ -198,14 +201,18 @@ history and `docker inspect`.
 Two things the command deliberately does not do, and says so when it runs:
 
 - **Existing sessions stay signed in.** Access tokens keep working for their full lifetime
-  (default 24h), refresh tokens for theirs (default 720h). Rotate `CHQ_AUTH_JWT_SECRET` and
-  restart to sign everyone out.
+  (`auth.token_ttl`, 1h by default), refresh tokens for theirs (`auth.refresh_ttl`, 168h).
+  The command prints the values *it* read, so run it where the server's configuration is —
+  inside the container, not beside it. Rotate `CHQ_AUTH_JWT_SECRET` and restart to sign
+  everyone out.
 - **A running server keeps its cached CardDAV verdicts for up to 5 minutes**, because the
   subcommand runs in its own process. Restart the server to drop the cache at once. A
   password changed through the web UI takes effect for CardDAV immediately.
 
 Exit codes: `0` success, `2` usage error, `3` no such user, `4` database unreachable,
-`5` database has no schema yet (start the server once so it can migrate).
+`5` database has no schema yet (start the server once so it can migrate). The database is
+checked before the password is asked for, so an unmigrated one fails with `5` rather than
+after you have typed a password twice.
 
 ### Repairing vCards written by an older version
 

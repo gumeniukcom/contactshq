@@ -76,6 +76,13 @@ Queued conflicts appear under **Sync → Conflicts**, where you resolve each fie
 choosing the local or remote value. The resolution is written to the contact and the
 sync state is advanced, so the next run does not re-detect it.
 
+When a conflict carries no per-field diffs — the two cards differ but nothing could be
+attributed to a single property — the screen offers whole-card buttons instead. **Apply
+remote (source wins)** replaces the contact with the remote card, which removes any
+property that exists only locally; it asks for confirmation first. It is refused outright
+if the conflict's remote card is empty, since that would leave the contact with nothing
+but its UID.
+
 ## Incremental sync
 
 Re-listing an entire address book on every run is wasteful and, for Google, burns API
@@ -143,19 +150,26 @@ configuration is needed; clients negotiate it automatically.
 **Provider endpoints are validated, and plain http is refused by default.** See
 [Where a pipeline may connect](#where-a-pipeline-may-connect) for what the check accepts.
 
-What this means for a pipeline that already exists depends on where its endpoint is written:
+A pipeline that already exists is checked on every run, wherever its endpoint is written:
 
 - **Inline in the step's config** — the endpoint is re-checked on every run, so a step
   pointing at `http://` fails until `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true` is set. The
   failure is recorded against that step alone; other steps in the same pipeline still run.
-- **In a stored credential** (`credential_id`) — the row is used as it stands. Nothing
-  rewrites your database on upgrade, and the run-time path resolves the credential *after*
-  the step check, so a credential saved before 0.4.0 keeps working over http. Saving or
-  editing it puts it through the check, and it cannot be stored again without the opt-in.
+- **In a stored credential** (`credential_id`) — the step check cannot see this endpoint,
+  because the step's config carries no `endpoint` key. The credential is therefore resolved
+  first and validated afterwards, on the value the provider is actually built with, so a
+  credential saved before 0.4.0 over `http://` now fails its next run in exactly the same way.
+  Nothing rewrites your database on upgrade; the row is still there, and the same opt-in
+  brings it back. Saving or editing it puts it through the same check.
 
-So the validation bounds what can be *entered*, and grandfathers what was already there.
-If you want the older rows held to the same rule, open each stored credential and save it:
-one that no longer passes will tell you so.
+So the validation bounds what can be *entered* **and** what can be *used*: there is no
+grandfathered path. That is deliberate — the alternative was continuing to post the provider's
+password, or an OAuth bearer token, in clear text on every run.
+
+Note what the opt-in does and does not buy. `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true` restores
+the old behaviour for every endpoint at once, and `skip_tls_verify` on a credential remains
+honoured and is not checked here at all — an `https://` endpoint with certificate verification
+disabled leaks the same password to anyone on the path. Prefer fixing the transport.
 
 ## Things that moved in v0.3.0
 

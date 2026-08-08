@@ -36,6 +36,10 @@ type ContactFields struct {
 	Anniversary string   `json:"anniversary"`
 	Gender      string   `json:"gender"`
 	TZ          string   `json:"tz"`
+	// Geo has no control in the web form; the form reads it off the contact and posts it
+	// back unchanged. GEO is a managed property, so leaving it out of this struct made
+	// every form edit write an empty GEO over a real one.
+	Geo string `json:"geo"`
 }
 
 type ContactFieldValue struct {
@@ -87,6 +91,7 @@ func (f ContactFields) ToParsed(uid string) *vcardpkg.ParsedContact {
 		Note:       f.Note,
 		Gender:     f.Gender,
 		TZ:         f.TZ,
+		Geo:        f.Geo,
 		Emails:     toVCardFields(f.Emails),
 		Phones:     toVCardFields(f.Phones),
 		URLs:       toVCardFields(f.URLs),

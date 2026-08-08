@@ -56,6 +56,16 @@ func TestValidateProviderEndpoint(t *testing.T) {
 	}
 }
 
+// The refusal has to be actionable for the deployment the README documents. `configs/config.yaml`
+// is not in the container image, so naming only the YAML key leaves a compose operator with
+// nothing to set; naming only the variable leaves a from-source operator guessing.
+func TestValidateProviderEndpoint_NamesBothTheYAMLKeyAndTheEnvVar(t *testing.T) {
+	err := chqsync.ValidateProviderEndpoint("http://dav.example.com/", strict)
+	require.ErrorIs(t, err, chqsync.ErrInvalidEndpoint)
+	require.Contains(t, err.Error(), "sync.allow_insecure_endpoints")
+	require.Contains(t, err.Error(), "CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS")
+}
+
 // The endpoint lives inside the step's JSON config, which is why ValidateStep had to be
 // widened to see it.
 func TestValidateStepEndpoint_ChecksTheConfig(t *testing.T) {

@@ -51,8 +51,11 @@ google:
 
 carddav:
   path_prefix: "/dav"
-  # Largest single vCard accepted, also announced to clients as CARDDAV:max-resource-size so
-  # they learn the limit before uploading. Env: CHQ_CARDDAV_MAX_RESOURCE_BYTES
+  # Largest single vCard a device may PUT through /dav, also announced to clients as
+  # CARDDAV:max-resource-size so they learn it before uploading; a larger card is refused with
+  # 413. Only this write path is checked — the REST API, import and inbound sync can store a
+  # bigger card, and such a card can then never be edited from a device until you raise this.
+  # Env: CHQ_CARDDAV_MAX_RESOURCE_BYTES
   max_resource_bytes: 1048576  # 1 MiB
 
 backup:

@@ -57,3 +57,14 @@ type Contact struct {
 	Categories []*ContactCategory `bun:"rel:has-many,join:id=contact_id" json:"categories,omitempty"`
 	Dates      []*ContactDate     `bun:"rel:has-many,join:id=contact_id" json:"dates,omitempty"`
 }
+
+// ContactValueRef is one child-table value and the contact it belongs to, and nothing else.
+//
+// It is the projection duplicate detection reads so it can bucket on secondary emails and
+// second phone numbers without loading contact rows a second time. Two columns, deliberately:
+// the whole point of the narrow read described on ListForDedup is not to pull vcard_data or
+// photo_uri, and a relation load would pull both plus all seven child collections.
+type ContactValueRef struct {
+	ContactID string `bun:"contact_id" json:"contact_id"`
+	Value     string `bun:"value"      json:"value"`
+}

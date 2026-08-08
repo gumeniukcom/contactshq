@@ -41,6 +41,11 @@ type ContactRepository interface {
 	ListAll(ctx context.Context, addressBookID string) ([]*domain.Contact, error)
 	// ListForDedup returns only the columns duplicate detection reads.
 	ListForDedup(ctx context.Context, addressBookID string) ([]*domain.Contact, error)
+	// ListDedupValues returns the secondary emails and phone numbers of an address book as
+	// two narrow (contact_id, value) projections. Detection buckets on these as well as on
+	// the flat columns ListForDedup returns; a contact's second phone number identifies them
+	// exactly as well as their first.
+	ListDedupValues(ctx context.Context, addressBookID string) (emails, phones []domain.ContactValueRef, err error)
 
 	// Child-record management (delete-then-insert in a transaction)
 	ReplaceEmails(ctx context.Context, contactID string, rows []*domain.ContactEmail) error

@@ -90,3 +90,23 @@ describe('formFromContact', () => {
     expect(toFieldsPayload(form).bday).toBe('19900131')
   })
 })
+
+// `geo` has no input in ContactForm.vue: it is carried through the form untouched so that an
+// edit does not clear it. `fields` is a full replacement of the managed set server-side, so a
+// payload that omits geo deletes the stored GEO. These assertions are the only guard — there
+// is no visible control whose disappearance would be noticed.
+describe('geo round-trip (no visible input)', () => {
+  it('reads geo off the contact', () => {
+    expect(formFromContact({ geo: 'geo:52.5,13.4' }).geo).toBe('geo:52.5,13.4')
+  })
+
+  it('sends geo back unchanged', () => {
+    const form = formFromContact({ geo: 'geo:52.5,13.4' })
+    expect(toFieldsPayload(form).geo).toBe('geo:52.5,13.4')
+  })
+
+  it('starts empty on a new contact', () => {
+    expect(emptyForm().geo).toBe('')
+    expect(toFieldsPayload(emptyForm()).geo).toBe('')
+  })
+})

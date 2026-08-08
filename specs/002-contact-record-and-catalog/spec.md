@@ -78,8 +78,8 @@ that changes only the first name, and assert both properties are still in the st
    re-derived from the card that was actually stored, not from the request
    (`internal/service/contact.go:164-168, 221`; `internal/service/contact_fields_test.go:63-85`).
 
-*A managed-but-unmodelled property is the exception to this story's promise; see Known
-Divergences, "A form edit drops `GEO`".*
+*A managed property the `fields` payload does not model is the exception to this story's promise;
+see Known Divergences, "`geo` is carried by the form but not editable in it".*
 
 ---
 
@@ -277,6 +277,10 @@ behaviour that contradicts an intent stated elsewhere lives in **Known Divergenc
 - **FR-018**: An update sent as `fields` MUST be merged into the stored card so that properties
   the form does not model survive, and MUST NOT change the contact's UID
   (`internal/service/contact.go:158-168`, delegating to `internal/vcard/merge.go:43`).
+  The merge replaces the *managed* properties wholesale (`internal/vcard/merge.go:14-31`), so
+  `ContactFields` MUST be able to express every one of them — including ones the browser has no
+  control for, which it carries through unchanged (`internal/service/contact_fields.go:13-43`).
+  A managed property missing from `ContactFields` is erased by every edit.
 - **FR-019**: After a merge the flat columns MUST be re-derived by re-parsing the stored card,
   not from the request payload (`internal/service/contact.go:164-168, 221`).
 - **FR-020**: An update sent as `vcard_data` MUST replace the stored card in full
@@ -572,6 +576,16 @@ the CardDAV protocol surface that *reads* the change journal is 004; file import
 005; how a contact reaches a remote provider is 006; duplicate detection, merging two contacts
 and every `Merge*`/`Duplicate*` file is 007.
 
+Three read paths live in files this spec owns but exist only to serve 007, which states what
+they must return: `ListForDedup` and `ListDedupValues`
+(`internal/repository/bun_contact.go:305-359`) and the two-column projection they share,
+`domain.ContactValueRef` (`internal/domain/contact.go:61-70`). They are deliberately narrower
+than this domain's own reads — neither touches `vcard_data` or `photo_uri`, and
+`ListDedupValues` returns bare `(contact_id, value)` rows from `contact_emails` and
+`contact_phones` rather than loading the child collections the way `GetByIDWithRelations` does
+(007 FR-013). Changing what a contact's emails or phones look like is this spec's business;
+changing what detection does with them is not.
+
 ## Enforced By
 
 **Repository layer** (package `repository_test`, run by `go test ./... -count=1 -race` in the
@@ -632,6 +646,10 @@ and every `Merge*`/`Duplicate*` file is 007.
   FR-014.
 - `TestContactFields_ToParsedSkipsEmptyValues` (`internal/service/contact_fields_test.go`) —
   FR-013.
+- `TestContactFields_ToParsedCarriesGeo` (`internal/service/contact_fields_test.go`),
+  `TestUpdate_FieldsEditKeepsGeo` and `TestUpdate_FieldsEditWithEmptyGeoClearsIt`
+  (`internal/service/contact_test.go`) — FR-018's managed-set half, and the pin on
+  "absent means clear" so nobody turns it into "absent means preserve".
 - `TestDeleteMany_DeletesInOneCallAndReportsCount`, `TestDeleteMany_DeduplicatesIDs`,
   `TestDeleteMany_RejectsAnOversizedRequest`, `TestDeleteMany_EmptyListDeletesNothing`
   (`internal/service/contact_bulk_test.go`) — FR-024, FR-025, SC-005.
@@ -647,7 +665,8 @@ and every `Merge*`/`Duplicate*` file is 007.
 - `web/src/utils/contact-form.spec.ts` — `toFieldsPayload` drops blank rows, trims, converts
   dates, and *never sends a `vcard_data` field*; `formFromContact` prefers child rows over the
   denormalised primaries and round-trips a birthday. Enforces FR-048 and the browser half of
-  FR-013.
+  FR-013. The three `geo round-trip (no visible input)` cases are the **only** guard on `geo`
+  surviving a browser edit — there is no control whose disappearance a reviewer would notice.
 - `web/src/components/contacts/ContactAvatar.spec.ts` — initials, the `?` fallback, the JPEG and
   PNG magic-prefix repair, pass-through of an already-usable URL, and refusing to request an
   unrecognised photo. Enforces FR-046.
@@ -696,13 +715,18 @@ of this domain's HTTP layer.
   PostgreSQL CI job runs `go test ./internal/repository/ -run TestPostgres`, and not one test in
   the six repository test files this spec owns carries a name matching that filter
   (`.github/workflows/ci.yml`, job `postgres`; CLAUDE.md, "PostgreSQL coverage naming").
-- **A form edit drops `GEO`, which contradicts User Story 2's promise.** `GEO` is a *managed*
-  property that `MergeIntoVCard` replaces (`internal/vcard/merge.go:28`), and the form payload has
-  no geo field (`internal/service/contact_fields.go:13-39`), so the merged card is written without
-  it. The flat `geo` column is then cleared by the re-parse
-  (`internal/vcard/domain_helper.go:26`). The surviving-properties guarantee therefore covers
-  *unmanaged* properties only; any property that is managed but unmodelled by the form has this
-  same failure mode.
+- **`geo` is carried by the form but not editable in it, and an API client that omits it still
+  clears `GEO`.** `ContactFields` now has a `geo` key (`internal/service/contact_fields.go:38-42`)
+  and `ToParsed` copies it (`:94`), so the web form round-trips the stored value instead of
+  deleting it. But no control renders it: the form reads `contact.geo` and posts it back unchanged
+  (`web/src/utils/contact-form.ts:47-49, 84`), so a user cannot set or correct a location through
+  the browser, and the value is displayed nowhere. Because `fields` is a **full replacement of the
+  managed set**, a direct API caller who posts `fields` without a `geo` key still clears `GEO` —
+  exactly as omitting `note` clears the note. That is the deliberate contract, pinned by
+  `TestUpdate_FieldsEditWithEmptyGeoClearsIt`; preserving absent keys would make Note, Gender and
+  TZ unclearable. The surviving-properties guarantee of User Story 2 therefore still covers
+  *unmanaged* properties only: any property that is managed (`internal/vcard/merge.go:14-31`) but
+  unmodelled by the form payload is silently erased by an edit.
 - **The QR code is a MECARD, not a vCard**, despite the method being called `GenerateVCardQR`. It
   carries exactly last name, first name, one phone, one email and the organisation — the
   denormalised columns only, so a contact's second phone number is not in the code
@@ -766,3 +790,5 @@ of this domain's HTTP layer.
 |------|-----|--------|----------|
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Conformed to the house template: house header, six repo sections added, `Scope Note` folded into the header prose and Code Paths/References, `Surprises` folded into Known Divergences, Success Criteria stripped of test and `.go` citations (moved to Enforced By). | — |
+| 2026-08-07 | unreleased | D6: `ContactFields` gained `geo`, so a form edit no longer erases `GEO`. FR-018 now states that `ContactFields` must be able to express the whole managed set. The divergence is narrowed, not removed: `geo` has no input in the browser (round-trip only), and a direct API caller who omits `geo` from `fields` still clears it, because `fields` remains a full replacement of the managed set. | — |
+| 2026-08-07 | unreleased | **D5** — `ContactRepository` gained `ListDedupValues`, and `internal/domain/contact.go` the `ContactValueRef` two-column projection it returns, so duplicate detection can bucket on secondary emails and phone numbers. Both live in files this spec owns; what they must return is stated by 007 FR-001a and FR-013, and the boundary paragraph under References now says so. No behaviour of this domain changed: no existing query, entity or field was touched. | — |

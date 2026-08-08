@@ -25,10 +25,10 @@ what it did. The same thing can be triggered by hand from the Backup screen.
 The settings row is per user (`internal/domain/user_backup_settings.go`,
 `migrations/008_user_backup_settings.up.sql`) and is edited at
 `web/src/views/backup/BackupView.vue:43-68` through `web/src/api/backup.ts:24-31`. Saving it
-re-registers the job in the running scheduler (`internal/handler/backup_handler.go:160-188`,
+re-registers the job in the running scheduler (`internal/handler/backup_handler.go:166-194`,
 `internal/worker/scheduler.go:143-158`). The scheduled firing runs
 `internal/worker/jobs/backup_job.go:29-45`; the manual button posts to
-`internal/handler/backup_handler.go:97-108`. Both land in `BackupService.CreateWithTrigger`
+`internal/handler/backup_handler.go:98-109`. Both land in `BackupService.CreateWithTrigger`
 (`internal/service/backup.go:117-179`), which writes the file
 (`internal/service/backup.go:181-303`) and then applies retention
 (`internal/service/backup.go:575-591`).
@@ -65,7 +65,7 @@ into what is there now or to *replace* everything with it. Replace is guarded: t
 the word "replace" before the button becomes usable
 (`web/src/views/backup/BackupView.vue:161-177`, `:300-303`).
 
-The request goes to `internal/handler/backup_handler.go:137-149` via
+The request goes to `internal/handler/backup_handler.go:143-155` via
 `web/src/api/backup.ts:20-22`, and the whole operation is
 `BackupService.Restore` (`internal/service/backup.go:396-502`): read and parse everything first,
 only then delete, then insert, then reconcile sync state
@@ -109,7 +109,7 @@ failed. If the server was down when a scheduled backup was due, it notices at bo
 
 The verdict is computed client-side in `web/src/utils/backup-health.ts:33-100` from
 `GET /api/v1/backup/status` and `GET /api/v1/backup/runs`
-(`internal/handler/backup_handler.go:39-95`, `web/src/api/backup.ts:33-40`), which read the
+(`internal/handler/backup_handler.go:40-96`, `web/src/api/backup.ts:33-40`), which read the
 `backup_runs` table (`internal/domain/backup_run.go`, `migrations/025_backup_runs.up.sql`,
 `internal/repository/bun_backup_run.go:36-88`). The boot-time catch-up is
 `cmd/server/startup.go:78-161`.
@@ -322,12 +322,12 @@ they are in **Known Divergences**.
 - **FR-022**: Backup settings MUST be per user, exposed at `GET/PUT /api/v1/backup/settings`, and
   MUST fall back to instance defaults — the configured schedule, retention 7, uncompressed — for a
   user who has never saved any (`internal/service/backup.go:595-610`,
-  `internal/handler/backup_handler.go:151-188`, `internal/domain/user_backup_settings.go`,
+  `internal/handler/backup_handler.go:157-194`, `internal/domain/user_backup_settings.go`,
   `migrations/008_user_backup_settings.up.sql`).
 - **FR-023**: A schedule saved with backups enabled MUST be validated as a cron expression and
-  rejected with `400` if it is not (`internal/handler/backup_handler.go:168-172`).
+  rejected with `400` if it is not (`internal/handler/backup_handler.go:174-178`).
 - **FR-024**: Saving settings MUST re-register or remove that user's scheduled job in the running
-  scheduler immediately, without a restart (`internal/handler/backup_handler.go:178-185`,
+  scheduler immediately, without a restart (`internal/handler/backup_handler.go:184-191`,
   `internal/worker/scheduler.go:143-158`).
 - **FR-025**: At startup the server MUST register a scheduled backup job for every user whose
   settings have backups enabled with a non-empty schedule
@@ -354,18 +354,18 @@ they are in **Known Divergences**.
   repository is wired in (`internal/service/backup.go:49-54`, `:129-131`,
   `internal/service/backup_run_test.go:169-176`).
 - **FR-032**: `GET /api/v1/backup/runs` MUST return the caller's runs newest first, defaulting to
-  50 and capped at 200 per page (`internal/handler/backup_handler.go:36-63`,
+  50 and capped at 200 per page (`internal/handler/backup_handler.go:37-64`,
   `internal/repository/bun_backup_run.go:36-48`).
 - **FR-033**: `GET /api/v1/backup/status` MUST answer "is my backup working" in one request with
   the last success, the last attempt whatever its outcome, and the next scheduled firing taken
-  from the registered job (`internal/handler/backup_handler.go:70-95`,
+  from the registered job (`internal/handler/backup_handler.go:71-96`,
   `internal/repository/bun_backup_run.go:54-88`, `internal/worker/scheduler.go:215-235`).
 - **FR-034**: Only a `completed` run MUST count as the last success — a failed or still-running row
   says nothing about whether the data is safe
   (`internal/repository/bun_backup_run.go:50-70`).
 - **FR-035**: Backup status MUST be behind authentication and scoped to the calling user; it MUST
   NOT be exposed on the unauthenticated health endpoint
-  (`internal/handler/backup_handler.go:65-72`, `internal/handler/handler.go:237`).
+  (`internal/handler/backup_handler.go:66-73`, `internal/handler/handler.go:237`).
 
 **Missed-backup catch-up at boot**
 
@@ -394,13 +394,18 @@ they are in **Known Divergences**.
   path that resolves outside the user's own backup directory
   (`internal/service/backup.go:343-369`, `internal/service/backup_integrity_test.go:32-52`).
 - **FR-043**: Download and delete MUST be scoped to the calling user and MUST answer `404` for
-  anything that does not resolve (`internal/handler/backup_handler.go:118-135`).
+  anything that does not resolve (`internal/handler/backup_handler.go:119-141`).
+- **FR-057**: `GET /api/v1/backup/download/:id` MUST answer with an `attachment` content
+  disposition naming the backup file being sent, in the same form as the export endpoints of
+  FR-016 (`internal/handler/backup_handler.go:130`). The name is the file's own — the SPA does not
+  read it (it sets the name itself from the listing), so this exists for API clients: `curl -OJ`
+  and anything else that saves a response under the name the server gave it.
 
 **Restore**
 
 - **FR-044**: `POST /api/v1/backup/restore/:id` MUST accept `?mode=merge` or `?mode=replace`,
   defaulting to `merge`, and MUST reject any other value with `400`
-  (`internal/handler/backup_handler.go:137-143`).
+  (`internal/handler/backup_handler.go:143-149`).
 - **FR-045**: Restore MUST read and parse the entire backup, preparing every contact, **before**
   anything destructive runs. An unreadable or empty file must not become the permanent loss of an
   address book (`internal/service/backup.go:389-464`).
@@ -560,6 +565,7 @@ Paths this spec **owns**. Exactly one spec may own a path (constitution, Princip
 - `internal/handler/import_handler.go`
 - `internal/handler/export_handler.go`
 - `internal/handler/backup_handler.go`
+- `internal/handler/backup_download_test.go`
 - `internal/repository/bun_backup_run.go`
 - `internal/repository/bun_user_backup_settings.go`
 - `internal/service/importer.go`
@@ -638,6 +644,8 @@ rate limiter (008); replication to a remote provider, which is not a backup (006
 - `TestCreate_RetentionFailureIsLoggedNotSwallowed` (`internal/service/backup_integrity_test.go:117`)
   — FR-020.
 - `TestGetPath_RejectsNonBackupFilenames` (`internal/service/backup_integrity_test.go:32`) — FR-042.
+- `TestBackupDownload_SetsAnAttachmentFilename` (`internal/handler/backup_download_test.go:20`) —
+  FR-057.
 
 **Settings and scheduling**
 
@@ -730,12 +738,16 @@ behind it. Nothing here is presented as a requirement that is met.
   API, which answers a fixed `"internal server error"` (constitution, Principle III). This is what
   makes "backup contains no readable contacts" and "backup exceeds the maximum restore size"
   legible to the user, but it also means a database error's text reaches the client
-  (`internal/handler/backup_handler.go:146`). Deliberate, and not defended — the legibility could
+  (`internal/handler/backup_handler.go:152`). Deliberate, and not defended — the legibility could
   have been bought with typed `*fiber.Error` values instead.
-- **`GET /backup/download/:id` sets no `Content-Disposition`.** It hands the path to `SendFile`, so
-  whether the browser downloads or displays the file is up to the browser
-  (`internal/handler/backup_handler.go:125`) — inconsistent with FR-016, which requires exactly
-  that header on all three export endpoints.
+**Backup download**
+
+- **`GET /backup/download/:id` states a filename but not a content type.** FR-057 is met; the
+  narrower gap that replaced it is that the response's `Content-Type` is still whatever fasthttp's
+  `SendFile` infers from the extension, not a type the handler chose
+  (`internal/handler/backup_handler.go:130-131`). The three export endpoints set both
+  (FR-016). Nothing depends on the inferred value today: the SPA asks for a blob and API clients
+  are saving the bytes to disk.
 
 **Restore**
 
@@ -828,3 +840,4 @@ These are review-only. Naming them is the point of this section; each is a gap, 
 |------|-----|--------|----------|
 | 2026-08-07 | v0.4.0 | Initial retrospective spec, reconstructed at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Conformed to the house template: house header replacing `Feature Branch`/`Input`; ownership recorded in `Code Paths` and `References`; `Enforced By` added with verified test names; admissions moved out of Edge Cases and Assumptions into `Known Divergences`, including the requirements that have no enforcer; SC-002 restated as FR-049 states it rather than as an absolute; SC-009 corrected to agree with FR-013; test and file citations removed from Success Criteria and added to the user stories. | — |
+| 2026-08-07 | unreleased | D4: `GET /backup/download/:id` now sets an `attachment` content disposition naming the file (FR-057 added, enforced by `TestBackupDownload_SetsAnAttachmentFilename`); the matching Known Divergence is replaced by the narrower one that the response's content type is still inferred by `SendFile`. The Backup screen's download button now reports a failed request instead of doing nothing. | — |

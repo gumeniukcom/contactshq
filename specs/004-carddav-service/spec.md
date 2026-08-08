@@ -34,24 +34,24 @@ this against a real in-memory database and the real HTTP surface
 
 1. **Given** a client with valid credentials, **When** it PROPFINDs `/dav/` at Depth 0,
    **Then** the response names the principal `/dav/{email}/`
-   (`internal/carddav/backend.go:106-112`; test `carddav_e2e_test.go:161`).
+   (`internal/carddav/backend.go:107-113`; test `carddav_e2e_test.go:173`).
 2. **Given** the principal, **When** the client PROPFINDs the home set
    `/dav/{email}/addressbooks/` at Depth 1, **Then** the one address book
    `/dav/{email}/addressbooks/contacts/` is listed
-   (`backend.go:114-147`; test `carddav_e2e_test.go:171`).
+   (`backend.go:115-148`; test `carddav_e2e_test.go:183`).
 3. **Given** a stored contact, **When** the client PROPFINDs the address book at Depth 1,
    **Then** the response contains `/dav/{email}/addressbooks/contacts/{uid}.vcf`
-   (`backend.go:210-241`; test `carddav_e2e_test.go:183`).
+   (`backend.go:211-242`; test `carddav_e2e_test.go:195`).
 4. **Given** a card PUT at the object URL, **When** it is GET back, **Then** the UID, names
-   and typed values survive the round trip (test `carddav_e2e_test.go:198`), and the contact
+   and typed values survive the round trip (test `carddav_e2e_test.go:210`), and the contact
    exists in the `contacts` table with parsed `first_name`/`last_name`, so the REST API and
-   CardDAV see the same record (`backend.go:279-309`; test `carddav_e2e_test.go:215`).
+   CardDAV see the same record (`backend.go:292-322`; test `carddav_e2e_test.go:227`).
 5. **Given** a stored contact, **When** the client DELETEs the object URL, **Then** the
    server answers 204 and the contact is gone from the database
-   (`backend.go:358-386`; test `carddav_e2e_test.go:234`).
+   (`backend.go:371-399`; test `carddav_e2e_test.go:246`).
 6. **Given** an unauthenticated request, **When** any DAV method is issued, **Then** the
    server answers 401 with `WWW-Authenticate: Basic realm="ContactsHQ CardDAV"`
-   (`internal/carddav/server.go:72-77`; test `carddav_e2e_test.go:125`). *(The verification
+   (`internal/carddav/server.go:72-77`; test `carddav_e2e_test.go:137`). *(The verification
    itself is spec 001's subject; only the challenge shape is claimed here.)*
 
 ---
@@ -67,27 +67,27 @@ Story 1 because a sync that loses edits is worse than no sync.
 
 **Independent Test**: PUT a card, read its ETag, PUT a different version (moving the ETag on),
 then PUT with the stale ETag in `If-Match` and observe 412 plus the surviving other edit
-(`carddav_e2e_test.go:325-350`).
+(`carddav_e2e_test.go:337-362`).
 
 **Acceptance Scenarios**:
 
 1. **Given** a contact whose ETag has moved on, **When** a client PUTs with the old value in
    `If-Match`, **Then** the server answers **412 Precondition Failed** and the stored card is
-   the other device's version (`internal/carddav/backend.go:338-355`; test
-   `carddav_e2e_test.go:325`).
+   the other device's version (`internal/carddav/backend.go:351-368`; test
+   `carddav_e2e_test.go:337`).
 2. **Given** a contact at its current ETag, **When** a client PUTs with that value in
-   `If-Match`, **Then** the write succeeds (test `carddav_e2e_test.go:352`).
+   `If-Match`, **Then** the write succeeds (test `carddav_e2e_test.go:364`).
 3. **Given** a contact that already exists, **When** a client PUTs with `If-None-Match: *`
    (create-only), **Then** the server answers 412 and the existing card is untouched
-   (`backend.go:330-336`; test `carddav_e2e_test.go:374`).
+   (`backend.go:343-349`; test `carddav_e2e_test.go:386`).
 4. **Given** no such contact, **When** a client PUTs with `If-None-Match: *`, **Then** the
-   contact is created (test `carddav_e2e_test.go:392`).
+   contact is created (test `carddav_e2e_test.go:404`).
 5. **Given** no such contact, **When** a client PUTs with any `If-Match` value, **Then** the
-   server answers 412 — the precondition cannot be satisfied (`backend.go:343-346`; test
-   `carddav_e2e_test.go:403`).
+   server answers 412 — the precondition cannot be satisfied (`backend.go:356-359`; test
+   `carddav_e2e_test.go:415`).
 6. **Given** any PUT or GET of a contact, **When** the client reads the `ETag` header,
    **Then** it is quoted exactly once, because the backend hands go-webdav the bare value
-   (`backend.go:311-318`; test `carddav_e2e_test.go:415`).
+   (`backend.go:324-331`; test `carddav_e2e_test.go:427`).
 
 ---
 
@@ -103,13 +103,13 @@ entire collection — measured at 48 KiB per poll for 200 contacts, growing line
 
 **Independent Test**: Read the CTag twice with no writes in between (stable), then create,
 update and delete a contact and observe it advance each time
-(`carddav_e2e_test.go:496-513`).
+(`carddav_e2e_test.go:567-584`).
 
 **Acceptance Scenarios**:
 
 1. **Given** an unchanged collection, **When** the CTag is read twice, **Then** the value is
    identical; **When** a contact is created, updated, or deleted, **Then** it changes
-   (`internal/repository/change_journal.go:17-26`, `76-84`; test `carddav_e2e_test.go:496`).
+   (`internal/repository/change_journal.go:17-26`, `76-84`; test `carddav_e2e_test.go:567`).
 2. **Given** a Depth-0 PROPFIND on the address book asking for
    `{http://calendarserver.org/ns/}getctag` or `{DAV:}sync-token`, **When** it is served,
    **Then** the answer is a 207 multistatus carrying those properties
@@ -117,24 +117,24 @@ update and delete a contact and observe it advance each time
 3. **Given** a client with no token, **When** it issues a `sync-collection` REPORT with an
    empty `sync-token`, **Then** it receives every contact, no deletions, and a token
    (`sync_collection.go:186-251`, `change_journal.go:112-114`; test
-   `carddav_e2e_test.go:538`).
+   `carddav_e2e_test.go:609`).
 4. **Given** a client holding a current token, **When** nothing has changed, **Then** the
-   report names no contact and returns the same token (test `carddav_e2e_test.go:553`).
+   report names no contact and returns the same token (test `carddav_e2e_test.go:624`).
 5. **Given** a client holding an older token, **When** contacts have been added and deleted,
    **Then** the added contact is reported with its ETag and the deleted contact's URL is
    named with `HTTP/1.1 404 Not Found`, while untouched contacts are not repeated
-   (`sync_collection.go:232-245`; test `carddav_e2e_test.go:564`).
+   (`sync_collection.go:232-245`; test `carddav_e2e_test.go:635`).
 6. **Given** a REPORT that asks for `{urn:ietf:params:xml:ns:carddav}address-data`, **When**
    it is served, **Then** each changed response carries the full card
-   (`sync_collection.go:226`, `236-238`; test `carddav_e2e_test.go:584`).
+   (`sync_collection.go:226`, `236-238`; test `carddav_e2e_test.go:655`).
 7. **Given** a token this server never issued — garbage, another server's URL, or a sequence
    ahead of the collection's own — **When** the REPORT is served, **Then** the answer is
    **403** carrying `<D:valid-sync-token/>`, which tells the client to resynchronise from
-   scratch (`sync_collection.go:91-97`, `196-220`; test `carddav_e2e_test.go:598`).
+   scratch (`sync_collection.go:91-97`, `196-220`; test `carddav_e2e_test.go:669`).
 8. **Given** a PROPFIND or REPORT that is *not* one of the two extensions, **When** it
    arrives, **Then** it reaches go-webdav untouched — `addressbook-query` and
    `addressbook-multiget` keep working (`server.go:118-140`; tests
-   `carddav_e2e_test.go:527`, `:616`, `:252`).
+   `carddav_e2e_test.go:598`, `:687`, `:264`).
 
 ---
 
@@ -204,7 +204,7 @@ or unenforced is recorded under Known Divergences instead, not here.
 
 - **What happens when a stored vCard cannot be decoded?** GET does not fail. The server
   synthesises a minimal card from the UID, version and name so the client still sees the
-  resource (`backend.go:180-208`, `398-415`).
+  resource (`backend.go:181-209`, `411-428`).
 - **What happens when a restored backup moves the sequence backwards?** Sync tokens are a
   per-address-book counter, so a client can arrive holding a token from a database that no
   longer exists. This is handled rather than prevented: a token ahead of the collection's own
@@ -212,17 +212,17 @@ or unenforced is recorded under Known Divergences instead, not here.
   because it "belongs to another database", and the client resynchronises.
 - **What happens on a client's very first `sync-collection`?** An empty token returns the whole
   collection and **no** deletions — a client that has never seen the collection has nothing to
-  delete (`change_journal.go:88-89`, `112-114`; test `carddav_e2e_test.go:538`).
+  delete (`change_journal.go:88-89`, `112-114`; test `carddav_e2e_test.go:609`).
 - **What happens when `If-Match` names a contact that does not exist?** 412: the precondition
   cannot be satisfied, and inventing the contact would defeat the point of asking
-  (`backend.go:343-346`).
+  (`backend.go:356-359`).
 - **What happens when the client omits the `.vcf` suffix?** `extractUIDFromPath` trims a
-  trailing `.vcf` only if present (`backend.go:388-396`), so `/…/contacts/{uid}` addresses the
+  trailing `.vcf` only if present (`backend.go:401-409`), so `/…/contacts/{uid}` addresses the
   same object. No client is known to rely on that; it is an accident of the implementation,
   not a promise.
 - **What happens to a request that is neither of the two extensions?** It is delegated to
   go-webdav untouched, so `addressbook-query` and `addressbook-multiget` keep working
-  (`server.go:118-140`; tests `carddav_e2e_test.go:527`, `:616`, `:252`).
+  (`server.go:118-140`; tests `carddav_e2e_test.go:598`, `:687`, `:264`).
 
 ## Requirements *(mandatory)*
 
@@ -237,7 +237,7 @@ or unenforced is recorded under Known Divergences instead, not here.
 - **FR-002**: Those four depths (1, 2, 3, 4 segments below the prefix) MUST be preserved,
   because go-webdav classifies a resource purely by segment count: a wrong depth makes a
   collection PROPFIND list nothing and dispatches a contact DELETE to `DeleteAddressBook`.
-  (`backend.go:45-54`; test `carddav_e2e_test.go:147-159` asserts the four depths)
+  (`backend.go:45-54`; test `carddav_e2e_test.go:159-171` asserts the four depths)
 - **FR-003**: Paths MUST be built through the exported helpers `PrincipalPath`,
   `HomeSetPath`, `AddressBookPath`, `AddressObjectPath` rather than by string concatenation
   at call sites. (`backend.go:60-79`; used by `sync_collection.go:133`, `233`, `243` and
@@ -250,35 +250,58 @@ or unenforced is recorded under Known Divergences instead, not here.
 
 - **FR-005**: Every backend operation MUST resolve data from the authenticated principal in
   the request context, never from the email segment in the URL; the segment is decorative.
-  (`backend.go:106-241`, `248-260`, `358-370` — all read `GetUserID`/`GetUserEmail`)
+  (`backend.go:107-242`, `249-261`, `371-383` — all read `GetUserID`/`GetUserEmail`)
 - **FR-006**: Each user MUST have exactly one address book, named from the stored record;
   creating an additional one and deleting one MUST be refused.
-  (`backend.go:122-147`, `172-178`)
+  (`backend.go:123-148`, `173-179`)
 - **FR-007**: `GET` on an address object MUST return the stored vCard text, decoded; if it
   cannot be decoded the server MUST synthesise a minimal card from UID, version and name
-  rather than fail. (`backend.go:180-208`, `398-415`)
+  rather than fail. (`backend.go:181-209`, `411-428`)
 - **FR-008**: `PUT` MUST store the card verbatim, parse it through the shared vCard package,
   and write the derived scalar columns and child records so the REST API sees the same
-  contact. (`backend.go:273-309`; `internal/vcard`)
+  contact. (`backend.go:274-322`; `internal/vcard`)
 - **FR-009**: `PUT` MUST derive the ETag as the first 8 bytes of the card's SHA-256, hex
   encoded, and MUST return it **unquoted** — go-webdav adds the quotes.
-  (`backend.go:274-275`, `311-318`; test `carddav_e2e_test.go:415`)
+  (`backend.go:287-288`, `324-331`; test `carddav_e2e_test.go:427`)
 - **FR-010**: `DELETE` on an address object MUST remove the contact identified by the UID in
-  the path within the authenticated user's address book. (`backend.go:358-386`)
+  the path within the authenticated user's address book. (`backend.go:371-399`)
 - **FR-011**: The address book MUST advertise `CARDDAV:max-resource-size` when a limit is
   configured, so a client learns the limit before uploading; zero omits the property.
-  (`backend.go:86-104`, `142-146`; wired at `cmd/server/main.go:286-287`; config validated
+  (`backend.go:86-105`, `143-147`; wired at `cmd/server/main.go:286-287`; config validated
   positive at `internal/config/config.go:355-360`)
+- **FR-036**: A `PUT` through `/dav` whose **stored** card exceeds
+  `carddav.max_resource_bytes` MUST be refused with **413 Request Entity Too Large**, naming
+  both the card's size and the limit; the contact MUST NOT be written.
+  (`backend.go:275-286`) The number compared is the length of the card **after** go-webdav has
+  decoded the body and `internal/vcard` has re-encoded it (`backend.go:274`), not the request's
+  `Content-Length`. A `GET` is not bounded: a resource larger than the advertised maximum may
+  still be read. Three consequences the code makes true and this spec will not overstate:
+  - The limit binds the `/dav` write path **only**. `POST /api/v1/contacts` (2 MiB via
+    `apiBodyLimit`, `cmd/server/main.go:397-407`, `:273`), `POST /import/*`
+    (`server.max_import_bytes`) and inbound sync all store cards without consulting it. The
+    advertised value is therefore honest about what a *device* may upload, and says nothing
+    about what the database may hold.
+  - It is **policy, not protection** (constitution Principle IV). `/dav` is mounted through
+    `adaptor.HTTPHandler` under the global 32 MiB `BodyLimit` (`cmd/server/main.go:211`,
+    `:299`), and go-webdav decodes the whole body into a `vcard.Card` before the backend runs
+    (`go-webdav@v0.7.0/carddav/server.go:671-676`, where its own max-resource-size check is
+    still a `TODO`). The allocation is already spent when the check fires. What the check buys
+    is that the card does not reach the database and the client is told why.
+  - Refusing is **413**, not RFC 6352's 403 with a `CARDDAV:max-resource-size` precondition
+    element: go-webdav v0.7.0 has no renderer for that element, so a 403 would be
+    indistinguishable from an authorization failure. A `*webdav.HTTPError` returned from the
+    backend keeps its status (`go-webdav@v0.7.0/internal/server.go:14-28`), so 413 arrives
+    as 413.
 
 **Preconditions (lost-update protection)**
 
 - **FR-012**: `If-None-Match: *` MUST mean create-only: 412 if the contact already exists.
-  (`backend.go:329-336`)
+  (`backend.go:342-349`)
 - **FR-013**: `If-Match` MUST mean update-only against the version the client last saw: 412 if
   the contact is absent, 412 if the ETag does not match, 400 if the header cannot be parsed.
-  (`backend.go:338-355`)
+  (`backend.go:351-368`)
 - **FR-014**: When neither header is present the write MUST proceed unconditionally — most
-  clients do not send them. (`backend.go:324-327`, `338-340`)
+  clients do not send them. (`backend.go:337-340`, `351-353`)
 
 **CTag (CalendarServer extension)**
 
@@ -288,11 +311,11 @@ or unenforced is recorded under Known Divergences instead, not here.
   `{DAV:}supported-report-set` when asked, and MUST advertise `sync-collection`,
   `addressbook-query` and `addressbook-multiget` in the report set — that is how a client
   discovers the extension exists. (`sync_collection.go:142-151`; test
-  `carddav_e2e_test.go:515`)
+  `carddav_e2e_test.go:586`)
 - **FR-017**: Properties the server does not have MUST come back in a `404 Not Found`
   propstat rather than being silently dropped. (`sync_collection.go:153-172`)
 - **FR-018**: A PROPFIND that asks for none of the extension properties MUST be delegated to
-  go-webdav unchanged. (`sync_collection.go:121-125`; test `carddav_e2e_test.go:527`)
+  go-webdav unchanged. (`sync_collection.go:121-125`; test `carddav_e2e_test.go:598`)
 
 **RFC 6578 collection synchronisation**
 
@@ -305,15 +328,15 @@ or unenforced is recorded under Known Divergences instead, not here.
   (`sync_collection.go:226-248`; `internal/repository/change_journal.go:86-128`)
 - **FR-021**: With an empty token the report MUST return the whole collection and **no**
   deletions — a client that has never seen the collection has nothing to delete.
-  (`change_journal.go:88-89`, `112-114`; test `carddav_e2e_test.go:538`)
+  (`change_journal.go:88-89`, `112-114`; test `carddav_e2e_test.go:609`)
 - **FR-022**: `address-data` MUST be included per changed resource only when the client asked
   for it, XML-escaped. (`sync_collection.go:226`, `236-238`)
 - **FR-023**: A token that this server did not mint, or that is ahead of the collection's own
   sequence, MUST be refused with **403** and `<D:valid-sync-token/>`, so the client
   resynchronises instead of silently missing deletions.
-  (`sync_collection.go:91-97`, `196-200`, `214-220`; test `carddav_e2e_test.go:598`)
+  (`sync_collection.go:91-97`, `196-200`, `214-220`; test `carddav_e2e_test.go:669`)
 - **FR-024**: A REPORT whose body is not a `sync-collection` MUST be delegated to go-webdav.
-  (`sync_collection.go:187-193`; test `carddav_e2e_test.go:616`)
+  (`sync_collection.go:187-193`; test `carddav_e2e_test.go:687`)
 - **FR-025**: The extension sniffing MUST read the body under a bounded limit and restore it
   for the delegated handler. (`server.go:126-131`, `143`)
 
@@ -401,16 +424,16 @@ methods listed in `RequestMethods`, so the WebDAV verbs are registered at the co
   the user knowing any path: `/.well-known/carddav` answers 301 to the collection prefix.
 - **SC-007**: One-tap iOS setup requires the user to type **one** value — the password. Host,
   port, TLS and principal URL come from the profile.
-- **SC-008**: The CardDAV surface is covered by 27 end-to-end tests exercising the real HTTP
-  handler against a migrated database, spanning auth, path depths, CRUD, preconditions, CTag,
-  sync-collection and delegation.
+- **SC-008**: The CardDAV surface is covered by 30 end-to-end tests exercising the real HTTP
+  handler against a migrated database, spanning auth, path depths, CRUD, preconditions, the
+  per-card size limit, CTag, sync-collection and delegation.
 
 ## Assumptions
 
 - **One address book per user, named `contacts` in the URL regardless of its display name.**
   The path segment is a constant (`backend.go:57`) while the display name comes from the
   record. Multiple address books were never a goal; creation is refused outright
-  (`backend.go:172-174`).
+  (`backend.go:173-175`).
 - **`GetOrCreateByUserID`'s race handling is best-effort, not a lock.** It retries the read
   after a failed insert (`bun_addressbook.go:59-65`). Adequate for the single-instance
   deployment this project supports; not a distributed guarantee.
@@ -498,6 +521,12 @@ HTTP handler against a migrated in-memory database:
   FR-008
 - `TestETagHeaderIsSingleQuoted` — FR-009
 - `TestDeleteAddressObject` — FR-010
+- `TestPutRejectsACardOverTheAdvertisedLimit` — FR-036 (413, and the row is not written),
+  `TestPutAcceptsACardAtTheAdvertisedLimit` (a card exactly at the limit is not over it, so
+  the boundary cannot silently go off by one),
+  `TestPutIsUnboundedWhenNoLimitIsSet` (pins `NewBackend`-without-`WithMaxResourceSize`, which
+  is a constructor contract and **not** a reachable configuration — `config.go:355-360` refuses
+  a non-positive `carddav.max_resource_bytes`)
 - `TestPutWithIfNoneMatchRejectsExistingContact`, `TestPutWithIfNoneMatchCreatesNewContact` —
   FR-012
 - `TestPutWithStaleIfMatchIsRejected`, `TestPutWithCurrentIfMatchSucceeds`,
@@ -544,16 +573,28 @@ with enforcers that do not exist.
 
 **Unenforced limits**
 
-- **`carddav.max_resource_bytes` is advertised, never enforced.** It is announced as
-  `CARDDAV:max-resource-size` on the address book (`internal/carddav/backend.go:86-104`,
-  `142-146`, `168`), but no code path compares a PUT body against it. The only real bound on a
-  card is Fiber's global `server.max_body_bytes` (`cmd/server/main.go:210-211`) — the per-route
-  `middleware.BodyLimit` is mounted on `/api/v1` only (`internal/handler/handler.go:73`, `79`)
-  and `/dav` is a separate mount (`cmd/server/main.go:298`). A client that ignores the
-  advertisement can store a card larger than the announced limit.
-- **`CHANGELOG.md:33-34` says a single CardDAV card is capped at 1 MiB and "a larger upload
-  gets a `413`".** That is not true of any code at `23a167c`, for the reason immediately above.
-  The changelog is the document that is wrong.
+- **`carddav.max_resource_bytes` binds one write path, not the record.** FR-036 refuses an
+  oversized `PUT` through `/dav` (`internal/carddav/backend.go:275-286`), and that is the whole
+  of it. A card larger than the limit can still be created through `POST /api/v1/contacts`, an
+  import, or an inbound sync run, and once stored it is served by `GET` and by
+  `sync-collection` without complaint. The named failure mode: **a contact stored above the
+  limit by any of those paths syncs out to a device fine and then becomes permanently
+  unwritable from that device** — the device's next `PUT` of it gets 413, and most CardDAV
+  clients retry indefinitely rather than surface the refusal. The remedy is the operator's:
+  raise `CHQ_CARDDAV_MAX_RESOURCE_BYTES`. See the upgrade note in `CHANGELOG.md`, which carries
+  the pre-flight query against `contacts.vcard_data`.
+- **A 413 from `/dav` is diagnosable only from the access log.** `internal/carddav` has no
+  logger, so the refusal surfaces as a single `middleware.RequestLogger` line
+  (`internal/handler/middleware/logger.go:47-55`) carrying the status and the request path —
+  which does contain the UID — and nothing else. The card's size and the limit reach the
+  *client* in the response body and are never recorded server-side.
+- **`/dav` is exempt from the fixed-error-text convention, and this is where that shows.**
+  Constitution Principle III and `newErrorHandler` govern the Fiber error path; the DAV mount
+  does not pass through it. go-webdav's `ServeError` ends in `http.Error(w, err.Error(), code)`
+  (`go-webdav@v0.7.0/internal/server.go:14-28`), so FR-036's message — two byte counts — is
+  echoed to the client verbatim. Byte counts are not secret, so this is acceptable here; it is
+  recorded because a reader would otherwise assume the API's policy applies to this mount. The
+  same mechanism is what leaks internal text in the divergence below.
 - **PROPFIND/REPORT bodies on the address book path are truncated at 1 MiB.**
   `serveSyncExtensions` buffers at most `maxSyncRequestBody` and hands the *buffered* copy on
   to go-webdav (`server.go:126-131`, `143`). A larger body — a very large
@@ -562,13 +603,13 @@ with enforcers that do not exist.
 **Behaviour that contradicts a stated project rule**
 
 - **Backend errors surface as 500 with the internal message.** Every backend failure returns a
-  plain `fmt.Errorf` (`backend.go:160`, `:196`, `:205`, `:383`), and go-webdav maps a non-
+  plain `fmt.Errorf` (`backend.go:161`, `:197`, `:206`, `:396`), and go-webdav maps a non-
   `HTTPError` to `500` with `err.Error()` in the body
   (`go-webdav@v0.7.0/internal/server.go:14-28`). So GETting a missing contact yields
   `500 contact not found`, not 404 — and internal text reaches the client, which is the
   opposite of constitution Principle III and of the API's fixed `"internal server error"`
   policy (`newErrorHandler`, `cmd/server/main.go`). Only the precondition checks build real
-  `HTTPError`s (`backend.go:332`, `:344`, `:349`, `:352`).
+  `HTTPError`s (`backend.go:345`, `:357`, `:362`, `:365`).
 - **`internal/carddav/server.go` is claimed here in whole while it still holds two domains.**
   At `23a167c` the file carries the routing surface (`ServeHTTP:71`, `serveSyncExtensions:118`,
   `isAddressBookPath:145`) *and* the credential-verification surface (`authenticate:160`,
@@ -590,15 +631,15 @@ with enforcers that do not exist.
 **Correctness rough edges**
 
 - **The UID in the path wins over the UID in the card.** `PutAddressObject` takes the UID from
-  the URL and only falls back to the card's `UID` property (`backend.go:262-271`), yet stores
-  the card verbatim (`backend.go:273`, `:302`). A client that PUTs to `a.vcf` a card saying
+  the URL and only falls back to the card's `UID` property (`backend.go:263-272`), yet stores
+  the card verbatim (`backend.go:274`, `:315`). A client that PUTs to `a.vcf` a card saying
   `UID:b` gets a contact keyed `a` whose stored vCard says `b`; nothing reconciles them.
 - **`addressbook-query` is not filtered server-side.** `QueryAddressObjects` returns the whole
-  collection and lets go-webdav filter it (`backend.go:243-246`), so a narrow query on a large
+  collection and lets go-webdav filter it (`backend.go:244-247`), so a narrow query on a large
   address book still loads every contact — the cost SC-001 removes from polling remains here.
 - **Two different lookups for the same address book.** The go-webdav backend uses
   `GetByUserID` and reports "no address books" when the row is missing
-  (`backend.go:128-134`), while the sync extensions use `GetOrCreateByUserID` and create it
+  (`backend.go:129-135`), while the sync extensions use `GetOrCreateByUserID` and create it
   (`sync_collection.go:202`, `255`; `internal/repository/bun_addressbook.go:45-67`). A user
   whose address book row does not exist sees an empty home set from a plain PROPFIND but a
   working CTag.
@@ -612,7 +653,7 @@ with enforcers that do not exist.
   `contact_tombstones` grows without bound over the life of an install. Pruning would need a
   horizon and a rule for rejecting tokens older than it; neither exists.
 - **Two identical ETag derivations exist.** The CardDAV backend computes
-  `sha256(vcard)[:8]` inline (`backend.go:274-275`); the REST path calls
+  `sha256(vcard)[:8]` inline (`backend.go:287-288`); the REST path calls
   `service.ContactETag`, which is the same computation (`internal/service/contact.go:347-350`).
   They agree today; nothing enforces that they keep agreeing, and the exported function exists
   specifically because a second hand-rolled copy would drift.
@@ -639,9 +680,10 @@ with enforcers that do not exist.
   any kind. Stories 4 and 5 are verified by hand, which is why the hard-coded `/dav` prefix and
   the dead `/docs` link above survived. SC-006 and SC-007 rest on the same manual checks.
 - **FR-011 is not tested**: no test asserts that `CARDDAV:max-resource-size` appears in a
-  PROPFIND response, or that zero omits it.
+  PROPFIND response, or that zero omits it. Only the *enforcement* half of the limit (FR-036)
+  has enforcers; the *advertisement* the whole feature is named after still has none.
 - **FR-017 is not tested**: the e2e suite asserts `404 Not Found` only as the spelling of a
-  *deletion* in a sync report (`carddav_e2e_test.go:548`, `:580`), never as the propstat for a
+  *deletion* in a sync report (`carddav_e2e_test.go:619`, `:651`), never as the propstat for a
   property the server does not have.
 - **FR-003 and FR-004 are review-only.** The path helpers are exercised indirectly by every
   test that builds a URL through them, but nothing fails if a future call site concatenates a
@@ -656,3 +698,4 @@ with enforcers that do not exist.
 |------|-----|--------|----------|
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Restructured to the house template; ownership of `internal/carddav/server.go` recorded here in full; admissions moved from Edge Cases and Assumptions into Known Divergences; corrected the claim that the setup guide was the only server-rendered page loading a CDN asset (`landing.html:7` does too). | — |
+| 2026-08-07 | unreleased | D1: `carddav.max_resource_bytes` is now enforced on `PUT` through `/dav` with a 413 (FR-036 added, enforced by `TestPutRejectsACardOverTheAdvertisedLimit`, `TestPutAcceptsACardAtTheAdvertisedLimit`, `TestPutIsUnboundedWhenNoLimitIsSet`). The divergence that it was "advertised, never enforced" is replaced by three narrower ones: the limit binds the `/dav` write path only — so a card stored above it via the API, an import or inbound sync becomes permanently unwritable from a device; a refusal is diagnosable only from one access-log line; and `/dav` is exempt from Principle III's fixed error text, which is why the 413 body carries the byte counts. The paired divergence saying `CHANGELOG.md` was wrong to promise a 413 is removed — the changelog is now right, and carries the upgrade note and pre-flight query. FR-011 is unchanged and still untested: only enforcement gained enforcers, not the advertisement. Backend and test line citations throughout renumbered for the inserted code. | — |

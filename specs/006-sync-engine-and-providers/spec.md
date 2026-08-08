@@ -459,6 +459,14 @@ from `## Success Criteria`, `## Assumptions` and sibling specs — keeps its mea
   `internal/handler/pipeline_handler.go` `validateSteps` at save time and
   `internal/sync/pipeline.go` `Execute` at run time), and the endpoint posted to a manual
   trigger (`internal/handler/sync_handler.go` `CardDAVTrigger`).
+- **FR-021a**: A provider MUST additionally be validated on the endpoint it is actually
+  constructed with, after any `credential_id` has been resolved into the config and before any
+  network call — including before the OAuth token exchange, not merely before the CardDAV dial
+  (`internal/sync/pipeline.go` `createProvider`). The four entry points of FR-021 are not
+  sufficient on their own: a step naming a `credential_id` carries no `endpoint` key, so
+  `ValidateStepEndpoints` finds nothing to check (`internal/sync/endpoint.go`
+  `endpointFromConfig`), and a credential written before v0.4.0 was never checked when it was
+  stored.
 - **FR-022**: Only `http` and `https` MUST be fetchable; `http` MUST be refused unless
   `sync.allow_insecure_endpoints` is set, because a sync request carries the provider's
   username and password (`internal/sync/endpoint.go`, `internal/config/config.go`
@@ -533,6 +541,13 @@ from `## Success Criteria`, `## Assumptions` and sibling specs — keeps its mea
   child records, not merely store it on the conflict row — nothing reads the stored copy back,
   so a resolution that stops there evaporates on the next run
   (`internal/service/sync_conflict.go` `Resolve`, and its type comment).
+- **FR-085**: A resolution MUST accept the wildcard key `*` as the choice for every field it
+  does not name individually, so "take the remote card wholesale" is expressible; an explicit
+  per-field key MUST win over it, and `UID`/`VERSION` MUST stay local regardless (FR-040).
+  Resolving `*` to `remote` removes every property the remote card does not carry — that is
+  what "the remote version won" means — and MUST be refused when the remote card is empty,
+  since the result would be a contact of `UID` and `VERSION` alone
+  (`internal/sync/merger.go` `wildcardField`, `ApplyResolution`, `ErrRemoteCardEmpty`).
 - **FR-045**: Resolving MUST advance the sync state: the resolved card becomes the new base
   and content hash, the remote ETag becomes the one recorded at detection, and the local ETag
   is cleared so the next export carries the resolution outward
@@ -667,6 +682,15 @@ from `## Success Criteria`, `## Assumptions` and sibling specs — keeps its mea
   the step interface).
 - **FR-084**: Per-field conflict choices MUST default to keeping the local value
   (`web/src/views/sync/SyncConflictDetailView.vue`).
+- **FR-086**: The whole-card "Apply remote (source wins)" button MUST require an explicit
+  confirmation that names the consequence — the remote card replaces the contact and
+  local-only properties are removed — before it sends the wildcard resolution of FR-085. It
+  is a one-click destructive overwrite otherwise, and the same view's copy MUST name the
+  action identically in the banner and on the button. The "Keep local (dest wins)" button MUST
+  state its own wildcard rather than leave it unset, or a failed remote attempt would leave
+  `*` behind in the same map and decide the next request
+  (`web/src/views/sync/SyncConflictDetailView.vue` `confirmRemote`, `resolveAllRemote`,
+  `resolveAllLocal`).
 
 ### Key Entities
 
@@ -714,7 +738,8 @@ from `## Success Criteria`, `## Assumptions` and sibling specs — keeps its mea
   states.
 - **SC-005**: Zero of the four endpoint entry points accepts a non-http(s) scheme, a hostless
   URL, or URL-embedded credentials; all four call the same function (the call sites are listed
-  in FR-021).
+  in FR-021). No pipeline step reaches a provider over an endpoint that would have been refused
+  at entry, including one resolved from a credential stored before the check existed (FR-021a).
 - **SC-006**: A permitted host cannot redirect a sync request to a different host, at any
   point in a chain bounded to 3 hops.
 - **SC-007**: A contact created locally and exported twice exists exactly once on the
@@ -824,10 +849,12 @@ Owned by this spec:
 - `internal/sync/engine_test.go`
 - `internal/sync/engine_push_test.go`
 - `internal/sync/engine_incremental_test.go`
+- `internal/sync/engine_conflict_diffs_test.go`
 - `internal/sync/provider.go`
 - `internal/sync/merger.go`
 - `internal/sync/merger_test.go`
 - `internal/sync/pipeline.go`
+- `internal/sync/pipeline_test.go`
 - `internal/sync/mode_test.go`
 - `internal/sync/endpoint.go`
 - `internal/sync/endpoint_test.go`
@@ -926,10 +953,10 @@ Touched or cited by this spec, owned elsewhere:
 - `docs/sync.md` — narrative documentation of this domain. **Unenforced**: nothing tests it and
   nothing fails when it drifts. It was used here as a map only, and every claim that became a
   requirement was re-verified in the source. Two of its claims did not survive that check and
-  appear under `## Known Divergences` instead: the grandfathered-credential path (which it
-  states correctly, but as a design note rather than a limitation) and the assertion that
-  resolution is per-field for all conflicts (the wildcard branch in the UI has no server-side
-  counterpart).
+  have since been corrected there rather than carried as divergences: its account of conflict
+  resolution as per-field only, corrected when FR-085 gave the wildcard a server-side
+  implementation, and its "Things that moved in v0.4.0" description of stored credentials as
+  grandfathered, corrected when FR-021a closed that path.
 - `CHANGELOG.md`, v0.4.0 — the breaking-change note for endpoint validation.
 - `CLAUDE.md` — project-wide rules on migrations, body limits and `write_timeout`.
 
@@ -984,6 +1011,19 @@ PostgreSQL.
 - `TestValidateStepEndpoint_ChecksTheConfig`, `TestValidateStepEndpoint_StillEnforcesShape`,
   `TestValidateStepEndpoint_IgnoresUnreadableConfig` (`internal/sync/endpoint_test.go`) —
   FR-021 at the step-config entry point, FR-026.
+- `TestValidateProviderEndpoint_NamesBothTheYAMLKeyAndTheEnvVar`
+  (`internal/sync/endpoint_test.go`) — the refusal names both `sync.allow_insecure_endpoints`
+  and `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS`, since `configs/config.yaml` is not in the container
+  image and the YAML key alone is not actionable for the documented compose deployment.
+- `TestCreateProvider_RefusesAGrandfatheredHTTPCredential`,
+  `TestCreateProvider_RefusesAnOAuthCredentialOverHTTP`,
+  `TestCreateProvider_RefusesAnInlineHTTPEndpoint`, `TestCreateProvider_RefusesAnEmptyEndpoint`,
+  `TestCreateProvider_AllowsAnHTTPCredentialWithTheOptIn`,
+  `TestCreateProvider_RefusesACredentialBelongingToAnotherUser`
+  (`internal/sync/pipeline_test.go`) — FR-021a, FR-032. The OAuth case asserts that the token
+  exchange was never attempted, which is what pins the validation *before* `GetHTTPClient`
+  rather than merely before the dial; the refusal cases assert the endpoint received zero
+  requests.
 - `TestProvider_RefusesARedirectToAnotherHost`, `TestProvider_FollowsARedirectWithinTheSameHost`
   (`internal/sync/endpoint_test.go`) — FR-024, SC-006.
 
@@ -1007,8 +1047,16 @@ PostgreSQL.
 - `TestApplyResolution_LocalChoice`, `TestApplyResolution_RemoteChoice`,
   `TestApplyResolution_DefaultsToLocal` (`internal/sync/merger_test.go`) — the per-field
   resolution contract behind FR-044 and FR-084.
+- `TestApplyResolution_WildcardRemoteTakesTheWholeRemoteCard`,
+  `TestApplyResolution_PerFieldChoiceBeatsTheWildcard`,
+  `TestApplyResolution_WildcardRemoteDropsALocalOnlyProperty`,
+  `TestApplyResolution_WildcardRemoteOnAnEmptyRemoteCardIsRefused`
+  (`internal/sync/merger_test.go`) — FR-085.
 - `TestResolve_WritesResolvedVCardToContact` (`internal/service/sync_conflict_test.go`) —
   FR-044.
+- `TestResolve_WildcardRemoteWritesTheRemoteCardToTheContact`
+  (`internal/service/sync_conflict_test.go`) — FR-085 end to end, from the resolution map to
+  the saved contact, its reparsed flat columns and the stored `ResolvedVCard`.
 - `TestResolve_AdvancesSyncState`, `TestResolve_MarksConflictResolved`,
   `TestResolve_MissingSyncStateStillUpdatesContact`
   (`internal/service/sync_conflict_test.go`) — FR-045, FR-046, SC-009.
@@ -1058,14 +1106,18 @@ PostgreSQL.
 
 **Requirements with no enforcer.** Stated as gaps, per constitution Principle VI:
 
-- **No handler test exists anywhere in this domain.** `internal/handler/` contains exactly two
-  test files, `health_test.go` and `registration_policy_test.go`, and neither touches sync.
+- **No handler test exists anywhere in this domain.** `internal/handler/` contains exactly three
+  test files — `health_test.go`, `registration_policy_test.go` and `backup_download_test.go` — and
+  none of them touches sync.
   FR-028, FR-029, FR-033, FR-034, FR-036, FR-037, FR-049, FR-050, FR-051, FR-052 and FR-076
   through FR-080 are therefore unenforced, as is SC-013 and SC-014 at the HTTP level. The
   behaviour is verified by reading the handlers only.
 - **FR-021 is enforced only at the step-config entry point.** Three of the four call sites it
   names — `CardDAVConnect`, credential create/update, `CardDAVTrigger` — are handler code with
-  no test. Removing the call in any of them would not redden CI. SC-005 inherits this.
+  no test. Removing the call in any of them would not redden CI. SC-005 inherits this, though
+  its second half — that no step *reaches* a provider over a refused endpoint — is enforced by
+  the `TestCreateProvider_*` cases for FR-021a, which is the point of validating at the
+  construction site rather than only at the entry points.
 - **FR-014's export half has no test.** `checkDeletionSafety` is called twice
   (`internal/sync/engine.go:248` and `:544`); only the `pullPhase` call site at `:248` is
   covered. Nothing would catch the `pushPhase` guard being removed.
@@ -1077,20 +1129,34 @@ PostgreSQL.
 - **FR-017 has no test.** Nothing asserts that `withTimeout` copies the caller's client rather
   than mutating it; passing the same `*http.Client` twice and observing the second call is all
   it would take.
-- **FR-030, FR-031 and FR-032 have no test.** Re-validation at execution time, per-step error
-  isolation and the `cred.UserID != userID` ownership check in `createProvider` are all
-  read-only claims.
+- **FR-030 and FR-031 have no test.** Re-validation at execution time and per-step error
+  isolation are read-only claims. FR-032's ownership check is now covered by
+  `TestCreateProvider_RefusesACredentialBelongingToAnotherUser`
+  (`internal/sync/pipeline_test.go`); the "inline or by reference" half of it is still read-only.
 - **FR-035 has no test.** Nothing asserts that enabled, scheduled pipelines are registered at
   boot.
 - **FR-061, FR-062, FR-065, FR-067, FR-068, FR-069, FR-070, FR-071, FR-073, FR-074, FR-075
   have no direct test.** Discovery ordering, the endpoint-resolution rule, the ETag re-read,
   the shared-encoder rule, Google paging and deletion flags, precondition classification, the
   internal provider's UID addressing and its idempotent delete are each verified by reading.
-- **FR-083 and FR-084 have no test.** No component test exists for any view in
+- **FR-083, FR-084 and FR-086 have no test.** No component test exists for any view in
   `web/src/views/pipelines/` or `web/src/views/sync/`, and `web/src/utils/pipeline.ts` has no
-  `.spec.ts` beside it, unlike six of its sibling utilities.
+  `.spec.ts` beside it, unlike six of its sibling utilities. FR-086 is the one that matters:
+  the confirmation is the only guard on a destructive one-click overwrite, and nothing fails
+  if a later edit wires the button straight back to `resolveAllRemote`.
 
 ## Known Divergences
+
+**A conflict with no field diffs used to blank both conflict screens.** `recordConflict`
+declared a nil `[]FieldConflict`, which `json.Marshal` writes as the four bytes `null`, and
+`JSON.parse("null")` returns `null` without throwing — so the views' `try`/`catch` never fired
+and `.forEach` ran on null. This was the *ordinary* manual-mode conflict, where the two sides
+edited different properties, not an edge case; one such row also blanked the whole conflicts
+list. Fixed on both ends: the engine now marshals `[]`, and `parseFieldDiffs`
+(`web/src/utils/sync-conflicts.ts`) coerces anything that is not an array to an empty one, which
+is what covers rows already written as `null` in installed databases. The client-side guard is
+therefore permanent, not transitional — nothing rewrites those rows.
+
 
 - **Sync state is keyed by provider *type*, not by connection or pipeline.** The engine builds
   its key as `remote.Name() + "->" + local.Name()` — e.g. `carddav->internal`
@@ -1108,14 +1174,18 @@ PostgreSQL.
   return 501.** They are unconditional stubs
   (`internal/handler/sync_handler.go` `GoogleConnect`, `GoogleTrigger`; registered at
   `internal/handler/handler.go`). Google works only through `/auth/google/*` plus a pipeline.
-- **Stored credentials are grandfathered past endpoint validation at run time.** A step
-  referencing `credential_id` normally carries no `endpoint` key in its config, so
-  `ValidateStepEndpoints` finds nothing to check (`internal/sync/endpoint.go`
-  `endpointFromConfig` returns `false` on a missing or blank endpoint), and
-  `createProvider` copies `cred.Endpoint` in *after* validation has already run
-  (`internal/sync/pipeline.go`). A credential saved before v0.4.0 over plain http keeps
-  working until someone re-saves it. `docs/sync.md` states this deliberately; it is an accepted
-  gap, not a met requirement, and it weakens FR-021 and SC-005.
+- **Endpoint validation does not judge the transport, only the scheme.** `createProvider` now
+  validates the endpoint it will actually build the provider from, after a `credential_id` has
+  been resolved into it (`internal/sync/pipeline.go` `createProvider`), so the grandfathered
+  path recorded here previously is closed. What replaces it is narrower: `skip_tls_verify` is
+  copied from the credential on the same lines and reaches `InsecureSkipVerify`
+  (`internal/sync/carddav_client.go` `NewCardDAVClientProviderWithOptions`), and
+  `ValidateProviderEndpoint` never sees it. `https://` with verification disabled exposes the
+  provider password to an on-path attacker exactly as `http://` does, and it is a per-credential
+  checkbox (`web/src/views/credentials/CredentialsView.vue`) with no deployment-level override —
+  so it is also the likeliest thing an operator reaches for when a LAN sync breaks on upgrade.
+  FR-022 is met; a requirement that the transport be *confidential* is not stated and would not
+  hold.
 - **`internal/worker/jobs/sync_job.go` performs no endpoint validation of its own.** The
   handler validates before enqueueing (`internal/handler/sync_handler.go` `CardDAVTrigger`),
   and a `credential_id` resolved inside the job is not checked at all. The job also does not
@@ -1137,13 +1207,20 @@ PostgreSQL.
   binding it to a session. A leaked authorisation URL is a leaked pending connection.
   Still open: is binding `state` to the initiating session intended, or is the unguessable
   UUID considered sufficient for a self-hosted single-user deployment?
-- **`ApplyResolution` has no wildcard.** The conflict UI, when a conflict carries no stored
-  field diffs, sets `resolution['*'] = 'remote'` to mean "take the remote card wholesale"
-  (`web/src/views/sync/SyncConflictDetailView.vue` `resolveAllRemote`). The server reads only
-  per-field keys and defaults anything unlisted to local (`internal/sync/merger.go`
-  `ApplyResolution`). The "Apply remote (source wins)" button in that branch therefore keeps
-  the local card. Confirmed by reading both sides; there is no test covering it, and
-  `docs/sync.md`'s claim that resolution is per-field for all conflicts does not survive it.
+- **A wildcard resolution that goes wrong cannot be undone from the UI.** `ApplyResolution`
+  now implements the `*` key (FR-085), so "Apply remote (source wins)" overwrites the contact
+  for real. The pre-resolution card is not lost — `Resolve` never clears `LocalVCard`
+  (`internal/service/sync_conflict.go`) and the field is serialised to the API
+  (`internal/domain/sync_conflict.go`) — but no screen shows it and the row is now `resolved`,
+  so recovering means hand-written SQL or a direct API read. The `ConfirmDialog` in front of
+  the button (FR-086) is the only thing standing between a mis-click and that state.
+- **A refused wildcard resolution reaches the client as a 500.** `ErrRemoteCardEmpty`
+  (`internal/sync/merger.go`) is a user-correctable condition, but `conflictError`
+  (`internal/handler/sync_handler.go`) has no case for it, so it falls to the default branch
+  and the user sees "failed to resolve conflict" with status 500 instead of a 400 explaining
+  that the conflict has no remote card. Mapping it is one `errors.Is` case; it was left
+  outside the fix that introduced the error rather than folded in unannounced, and is
+  recorded here so the wrong status is not read as intended.
 - **`MergeVCards` compares whole property sets as sorted, joined strings**
   (`internal/sync/merger.go` `serializeField`). Two edits to *different* email addresses on
   the same card are one `EMAIL` conflict, not two, and resolution is all-or-nothing per
@@ -1215,5 +1292,9 @@ PostgreSQL.
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-07 | unreleased | **D2a** — `recordConflict` marshalled a nil diff slice as `null`, blanking the conflict detail page and, through one row, the conflicts list. Engine now emits `[]`; `parseFieldDiffs` guards both views for rows already stored as `null`. Found by the design review of D2, not by the original defect list: D2's "apply remote" button lives on the page this bug prevented from rendering. | — |
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Rewritten to the house template: header replaced with `Kind`/`Status`/`Constitution` (`Feature Branch`, `Created`, `Source` and the `How to read this` blockquote removed or moved to prose); `Dependencies` and `Out of Scope` folded into Assumptions; `Status`, `Code Paths`, `References`, `Enforced By`, `Known Divergences` and `Amendments` placed in template order. Ownership narrowed from `internal/sync/` as a package to an explicit file list, and the partial `cmd/server/startup.go` claim dropped. Every admission moved out of Edge Cases into Known Divergences; Edge Cases restated as genuine boundary conditions. Test names and `.go` paths removed from Success Criteria and reconciled into Enforced By, with twenty-plus unenforced requirements named as gaps. FR-019 and FR-020 replaced by cross-references to `008-runtime-configuration-and-delivery` FR-041 and FR-042. The `migrations/021_change_journal` open question closed: not claimed here, referenced as `004-carddav-service`'s. Status `Implemented (retrospective)` → `shipped`. | — |
+| 2026-08-07 | unreleased | D2: `ApplyResolution` now implements the `*` wildcard the conflict UI has always sent, so "Apply remote (source wins)" writes the remote card instead of silently keeping the local one. New FR-085 (wildcard semantics, per-field keys win, empty remote refused with `ErrRemoteCardEmpty`) and FR-086 (the button now goes through a `ConfirmDialog` naming the consequence, and the banner and button name the action identically). The Known Divergence "`ApplyResolution` has no wildcard" is retired and replaced by two narrower ones: the pre-resolution card is recoverable only outside the UI, and `ErrRemoteCardEmpty` still reaches the client as a 500. `docs/sync.md` corrected in the same pass. | — |
+| 2026-08-07 | unreleased | D7: `createProvider` now resolves a `credential_id` into the config and validates the endpoint it will actually construct the provider from, before any network call and before the OAuth token exchange. **Breaking**: a credential stored before v0.4.0 with an `http://` endpoint now fails its next run instead of sending the provider password, or an OAuth bearer token, in clear text; `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true` restores it. New FR-021a, with SC-005 extended to cover use as well as entry. The Known Divergence "stored credentials are grandfathered past endpoint validation at run time" is retired and replaced by a narrower one: `skip_tls_verify` is still copied from the credential and never validated, so a permitted `https://` endpoint is not thereby confidential. `ValidateProviderEndpoint`'s refusal now names `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS` alongside the YAML key, since `configs/config.yaml` is not in the container image. New file `internal/sync/pipeline_test.go` claimed under `## Code Paths`; `docs/sync.md`, `README.md` and `CHANGELOG.md` corrected in the same pass. | — |
+| 2026-08-07 | unreleased | D4: corrected the statement that `internal/handler/` holds exactly two test files. It holds three — `backup_download_test.go` was added by D4, which this spec does not own. Wording only; no requirement, enforcer or code path changed here. | D4 |

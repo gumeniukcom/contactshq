@@ -23,6 +23,11 @@ type mockContactRepo struct {
 	emailsWritten map[string][]*domain.ContactEmail
 	// beforeListForDedup lets a test hold a scan open long enough to start a second one.
 	beforeListForDedup func()
+	// dedupEmails / dedupPhones stand in for the two narrow child-table projections
+	// ListDedupValues reads. They are kept separate from `contacts` because the real query
+	// reads contact_emails / contact_phones, not the contact row's flat columns.
+	dedupEmails []domain.ContactValueRef
+	dedupPhones []domain.ContactValueRef
 }
 
 // Save mirrors the repository: contact row and child rows land together.
@@ -139,6 +144,20 @@ func (m *mockContactRepo) ListForDedup(ctx context.Context, abID string) ([]*dom
 		m.beforeListForDedup()
 	}
 	return m.ListAll(ctx, abID)
+}
+
+// ListDedupValues mirrors the repository: only values whose contact is in this address book.
+func (m *mockContactRepo) ListDedupValues(_ context.Context, abID string) ([]domain.ContactValueRef, []domain.ContactValueRef, error) {
+	inBook := func(refs []domain.ContactValueRef) []domain.ContactValueRef {
+		out := make([]domain.ContactValueRef, 0, len(refs))
+		for _, r := range refs {
+			if c, ok := m.contacts[r.ContactID]; ok && c.AddressBookID == abID {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	return inBook(m.dedupEmails), inBook(m.dedupPhones), nil
 }
 
 func (m *mockContactRepo) ListAll(_ context.Context, abID string) ([]*domain.Contact, error) {

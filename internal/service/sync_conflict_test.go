@@ -181,6 +181,36 @@ func TestResolve_WritesResolvedVCardToContact(t *testing.T) {
 	}
 }
 
+// "Apply remote (source wins)" sends a single wildcard key. It has to reach the contact:
+// reporting success while leaving the local card in place is data loss from the user's
+// point of view, because they believe the remote version won.
+func TestResolve_WildcardRemoteWritesTheRemoteCardToTheContact(t *testing.T) {
+	svc, conflictRepo, _, contactRepo := setupConflict(t)
+
+	_, err := svc.Resolve(context.Background(), "u1", "c1", map[string]string{"*": "remote"})
+	if err != nil {
+		t.Fatalf("Resolve() = %v", err)
+	}
+
+	contact := contactRepo.contacts["contact-1"]
+	if !strings.Contains(contact.VCardData, "Alice Remote") {
+		t.Errorf("wildcard remote did not apply the remote FN: %q", contact.VCardData)
+	}
+	if strings.Contains(contact.VCardData, "Alice Local") {
+		t.Errorf("local FN survived a wildcard remote resolution: %q", contact.VCardData)
+	}
+	if !strings.Contains(contact.VCardData, "remote@example.com") {
+		t.Errorf("wildcard remote did not apply the remote EMAIL: %q", contact.VCardData)
+	}
+	// The flat columns are reparsed from the resolved card, not left behind.
+	if contact.Email != "remote@example.com" {
+		t.Errorf("contact.Email = %q, want remote@example.com", contact.Email)
+	}
+	if stored := conflictRepo.byID["c1"]; !strings.Contains(stored.ResolvedVCard, "Alice Remote") {
+		t.Errorf("ResolvedVCard = %q, want the remote card", stored.ResolvedVCard)
+	}
+}
+
 // The sync state must move on, or the next run re-detects the same conflict.
 func TestResolve_AdvancesSyncState(t *testing.T) {
 	svc, _, stateRepo, _ := setupConflict(t)

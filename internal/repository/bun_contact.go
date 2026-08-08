@@ -316,3 +316,44 @@ func (r *BunContactRepository) ListForDedup(ctx context.Context, addressBookID s
 		Scan(ctx)
 	return contacts, err
 }
+
+// ListDedupValues returns every contact_emails and contact_phones value in the address book,
+// each as a bare (contact_id, value) pair.
+//
+// Two queries rather than one join onto ListForDedup, and rather than Relation("Emails"):
+//
+//   - Joining contacts to contact_emails repeats every selected contact column once per email
+//     and leaves the de-duplication to Go.
+//   - Relation("Emails") / WithRelations loads whole contact rows — vcard_data and photo_uri
+//     included — which is precisely the read cost the comment on ListForDedup exists to avoid.
+//
+// The plan each query wants is: drive from contacts filtered by address_book_id, which
+// idx_contacts_book_seq(address_book_id, change_seq) supports (migrations/021), then look the
+// child rows up by contact_id, which is idx_contact_emails_contact and
+// idx_contact_phones_contact (migrations/014). The child-table index alone would not make this
+// cheap — it is the pairing of the two that keeps it proportional to the address book.
+//
+// Only the two columns are selected. Nothing here reads a card.
+func (r *BunContactRepository) ListDedupValues(ctx context.Context, addressBookID string) ([]domain.ContactValueRef, []domain.ContactValueRef, error) {
+	read := func(table string) ([]domain.ContactValueRef, error) {
+		var refs []domain.ContactValueRef
+		err := r.db.NewSelect().
+			ColumnExpr("v.contact_id AS contact_id").
+			ColumnExpr("v.value AS value").
+			TableExpr(table+" AS v").
+			Join("JOIN contacts AS c ON c.id = v.contact_id").
+			Where("c.address_book_id = ?", addressBookID).
+			Scan(ctx, &refs)
+		return refs, err
+	}
+
+	emails, err := read("contact_emails")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list dedup emails: %w", err)
+	}
+	phones, err := read("contact_phones")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list dedup phones: %w", err)
+	}
+	return emails, phones, nil
+}

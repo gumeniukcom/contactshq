@@ -261,14 +261,20 @@ async function handleCreate() {
 }
 
 async function handleDownload(b: BackupInfo) {
-  const { data } = await downloadBackup(b.id)
-  const blob = data instanceof Blob ? data : new Blob([data])
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = b.filename
-  a.click()
-  URL.revokeObjectURL(url)
+  try {
+    const { data } = await downloadBackup(b.id)
+    const blob = data instanceof Blob ? data : new Blob([data])
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = b.filename
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    // Same silence as handleCreate had: a backup deleted in another tab answers 404 and the
+    // button did nothing at all — no toast, no console line, no state change.
+    toast.error(getApiError(e, 'Download failed'))
+  }
 }
 
 // ── Delete ─────────────────────────────────────────────────────────────────

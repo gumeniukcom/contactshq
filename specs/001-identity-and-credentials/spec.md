@@ -256,13 +256,13 @@ flow anywhere in the codebase.
 
 1. **Given** an interactive terminal, **When** `set-password you@example.com` runs, **Then** the
    password is prompted twice with echo disabled and mismatches are rejected
-   (`cmd/server/cli.go:230-256`).
+   (`cmd/server/cli.go:257-283`).
 2. **Given** a pipe, **When** `--stdin` is passed, **Then** the first line of stdin is used; without
    the flag the command refuses rather than reading a non-terminal
-   (`cmd/server/cli.go:214-234`, `cmd/server/cli_test.go:66`).
+   (`cmd/server/cli.go:241-261`, `cmd/server/cli_test.go:76`).
 3. **Given** a password written as a command-line argument, **When** the command runs, **Then** it
    is a usage error: the command accepts exactly one positional, the email
-   (`cmd/server/cli.go:155-163`, `cmd/server/cli_test.go:54`). The prohibition itself is stated by
+   (`cmd/server/cli.go:157-165`, `cmd/server/cli_test.go:63`). The prohibition itself is stated by
    **008 FR-060**, which owns `cmd/server/cli.go`; this scenario records how it is observed here.
 4. **Given** a new password shorter than 8 characters, **When** it is entered, **Then** the command
    exits without writing, and it never creates an account and never changes a role
@@ -272,8 +272,12 @@ flow anywhere in the codebase.
    are defined by **008 FR-059** (`cmd/server/cli.go:21-29`); what this spec requires is that the
    four situations remain distinguishable (SC-009).
 6. **Given** success, **When** the command finishes, **Then** it prints that existing sessions stay
-   signed in and that a running server keeps cached CardDAV verdicts for up to five minutes
-   (`cmd/server/cli.go:200-211`, `cmd/server/cli_test.go:104`).
+   signed in — quoting the token lifetimes this process's configuration actually holds — and that a
+   running server keeps cached CardDAV verdicts for up to five minutes
+   (`cmd/server/cli.go:202-238`, `cmd/server/cli_test.go:118`, `:179`).
+7. **Given** a database with no schema, **When** the command runs, **Then** it exits `5` *before*
+   asking for a password, so the operator is not made to type a secret twice for nothing
+   (`cmd/server/cli.go:167-177`, `cmd/server/cli_test.go:207`).
 
 ---
 
@@ -465,9 +469,13 @@ flow anywhere in the codebase.
   **008 FR-059**. This spec keeps only the outcome it depends on, SC-009.
 - **FR-049**: *Withdrawn — cross-reference only.* "A subcommand MUST NOT run migrations and MUST
   refuse to operate on a database with no schema" is a property of the shared helper
-  `openCLIDatabase` (`cmd/server/cli.go:108-136`); it is stated by **008 FR-062**.
+  `openCLIDatabase` (`cmd/server/cli.go:109-138`); it is stated by **008 FR-062**.
 - **FR-050**: On success `set-password` MUST state that existing sessions remain valid and that a
-  running server keeps cached CardDAV verdicts. (`cmd/server/cli.go:198-211`)
+  running server keeps cached CardDAV verdicts. The token lifetimes it quotes MUST come from the
+  configuration this process loaded — not from literals in the message — and the message MUST say
+  that those are the values *this* process read, since a server started with a different
+  environment or working directory is using different ones.
+  (`cmd/server/cli.go:202-238`, `internal/config/config.go:181-182`)
 
 **Web client behaviour**
 
@@ -730,9 +738,18 @@ Neighbouring specs:
 
 - `TestSetPassword_RefusesAPasswordArgument`, `TestSetPassword_RequiresAnEmail`,
   `TestSetPassword_NonTerminalWithoutStdinFlagIsRefused`, `TestSetPassword_EmptyStdinIsRefused`
-  (`cmd/server/cli_test.go:54,59,66,72`) — SC-008 here; the rule itself is 008 FR-060.
+  (`cmd/server/cli_test.go:63,68,76,84`) — SC-008 here; the rule itself is 008 FR-060.
   *(File owned by spec 008.)*
-- `TestSetPassword_WarningsAreSpelledOut` (`cmd/server/cli_test.go:104`) — FR-050.
+- `TestSetPassword_WarningsAreSpelledOut` (`cmd/server/cli_test.go:118`) — FR-050, the substance of
+  the message. *(File owned by spec 008.)*
+- `TestSetPassword_EpilogueQuotesTheRunningConfiguration` (`cmd/server/cli_test.go:179`) — FR-050,
+  the numbers. It drives the whole command with `CHQ_AUTH_TOKEN_TTL=4h` and
+  `CHQ_AUTH_REFRESH_TTL=48h` against a seeded database and asserts the printed text carries those
+  values and not the shipped defaults; asserting on the formatter alone would stay green if the
+  call site passed constants, which is exactly how the numbers went stale before.
+  `TestHumanTTL` (`cmd/server/cli_test.go:129`) pins the rendering. *(File owned by spec 008.)*
+- `TestSetPassword_RefusesAnUnmigratedDatabaseBeforePrompting` (`cmd/server/cli_test.go:207`) —
+  User Story 7 scenario 7. *(File owned by spec 008.)*
 
 **Web client**
 
@@ -750,7 +767,7 @@ Neighbouring specs:
    even deleting the user does **not** invalidate an outstanding access token, because `JWTAuth`
    never touches the database (`internal/handler/middleware/auth.go:22-30`). The documented
    instance-wide remedy is rotating `CHQ_AUTH_JWT_SECRET` and restarting
-   (`internal/config/config.go:177-180`, `cmd/server/cli.go:200-211`). A *refresh* does re-read the
+   (`internal/config/config.go:177-180`, `cmd/server/cli.go:202-238`). A *refresh* does re-read the
    user, so a deleted account cannot mint a new pair (`internal/service/auth.go:190-196`).
 2. **A demoted administrator keeps administrator rights until their access token expires.**
    `AdminOnly` reads the `role` claim, not the stored row
@@ -763,11 +780,19 @@ Neighbouring specs:
    whether it should be closed is an open question.
 4. **`set-password` cannot invalidate a running server's cache**, because it is a separate process
    holding its own state. The command says so; restarting the server is the stated remedy
-   (`cmd/server/cli.go:206-210`).
-5. **The `set-password` epilogue quotes stale TTL defaults** — "default 24h" for access and "720h"
-   for refresh (`cmd/server/cli.go:204-206`) — while the shipped defaults have been `1h` and `168h`
-   since v0.4.0 (`internal/config/config.go:181-182`, `CHANGELOG.md` 0.4.0 "Breaking"). FR-050 is
-   satisfied in substance and wrong in its numbers, which are what an operator will act on.
+   (`cmd/server/cli.go:218-221`).
+5. **The lifetimes `set-password` prints are this process's, not provably the running server's.**
+   The epilogue no longer hardcodes numbers — it quotes `auth.token_ttl` and `auth.refresh_ttl`
+   from the configuration the subcommand itself loaded (`cmd/server/cli.go:198`,
+   `internal/config/config.go:219-228`). That is a narrower limitation than the stale literals it
+   replaces, but it is still one: config lookup is working-directory relative
+   (`internal/config/config.go:233-236`) and the environment is per-process, so
+   `docker compose exec` agrees with the server while a `docker run` carrying a different `-e` set
+   does not. The message states this rather than implying certainty, and nothing in the process
+   can verify what the server across the socket is using. Relatedly, a bare integer in
+   `CHQ_AUTH_TOKEN_TTL` decodes as nanoseconds (`3600` is 3.6µs), so the epilogue will faithfully
+   print an absurd value — that is the server's behaviour too, and this command only makes it
+   visible.
 6. **Nothing prevents an instance from losing its last administrator.** `PUT /admin/users/:id/role`
    and `DELETE /admin/users/:id` have no "last admin" guard and no self-protection, and
    `set-password` deliberately never touches roles (`internal/handler/admin_handler.go:39-66`,
@@ -839,3 +864,4 @@ Neighbouring specs:
 |------|-----|--------|----------|
 | 2026-08-07 | v0.4.0-3-g23a167c | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0-3-g23a167c | Conformed to the house template; withdrew FR-045, FR-046, FR-048 and FR-049 in favour of spec 008 (FR-060, FR-061, FR-059, FR-062) and left their numbers as labelled cross-references; merged the trusted-proxy trust rule into a single statement at FR-044; folded Scope Note into Code Paths, Dependencies into References and Open Questions into Known Divergences. | — |
+| 2026-08-07 | unreleased | FR-050 now requires the `set-password` epilogue to quote `auth.token_ttl` and `auth.refresh_ttl` from the loaded configuration and to say those are *this* process's values; the hardcoded "default 24h"/"default 720h" are gone. Known Divergence 5 no longer records stale literals — it records the narrower limitation that replaced them (a subcommand cannot see the running server's environment, and config lookup is working-directory relative). Added User Story 7 scenario 7: the schema check now runs before the password prompt. | D3 |

@@ -204,6 +204,13 @@ left alone because nothing here touched the remote side.
   trigger endpoint posted in a request body. The client also refuses cross-host redirects —
   validating the string alone would not stop `302 → 169.254.169.254`. Private addresses are
   deliberately NOT filtered: LAN CardDAV is a supported setup.
+  **Entry points are not enough, and this is the trap:** a pipeline step naming a
+  `credential_id` carries no endpoint of its own, so step validation had nothing to look at and
+  a credential stored before the check existed was used as it stood. `createProvider`
+  (`internal/sync/pipeline.go`) therefore resolves the credential first and validates the value
+  it will actually build the provider from — before any network call, including the OAuth token
+  exchange. Anything new that turns stored configuration into a connection owes the same check.
+  `skip_tls_verify` is copied from the credential and is still never validated.
 - **Sync**: `SyncProvider.Put` returns the id the provider assigned (Google mints its
   own). Incremental providers implement `IncrementalProvider` (delta + cursor);
   conditional writers implement `ConditionalWriter` (If-Match / ETag). The engine falls

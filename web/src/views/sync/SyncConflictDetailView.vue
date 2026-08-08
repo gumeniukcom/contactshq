@@ -28,7 +28,8 @@
         class="bg-amber-50 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 rounded-lg p-4 text-sm text-amber-800 dark:text-amber-300 mb-6"
       >
         No field-level conflicts detected. The vCards differ but no specific field diffs were recorded.
-        Choosing "Apply source (remote)" will overwrite the local contact.
+        Choosing "Apply remote (source wins)" replaces the local contact with the remote card: properties that
+        exist only locally will be removed.
       </div>
 
       <!-- Per-field resolution -->
@@ -98,7 +99,7 @@
         </button>
         <button
           class="flex-1 py-2 px-4 rounded-lg border-2 border-green-300 dark:border-green-500/50 bg-green-50 dark:bg-green-500/10 text-green-800 dark:text-green-300 text-sm font-medium hover:bg-green-100 dark:hover:bg-green-500/20 transition-colors"
-          @click="resolveAllRemote"
+          @click="confirmRemote = true"
         >
           Apply remote (source wins)
         </button>
@@ -110,16 +111,29 @@
       </div>
 
       <p v-if="errorMsg" class="mt-3 text-sm text-destructive">{{ errorMsg }}</p>
+
+      <!-- This button overwrites the whole contact in one click, so it asks first. -->
+      <ConfirmDialog
+        :show="confirmRemote"
+        title="Apply remote (source wins)?"
+        message="The remote card replaces this contact entirely. Properties that exist only locally will be removed, and there is no undo in the app."
+        confirm-text="Apply remote"
+        :loading="saving"
+        @cancel="confirmRemote = false"
+        @confirm="resolveAllRemote"
+      />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
+import { parseFieldDiffs } from '@/utils/sync-conflicts'
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getConflict, resolveConflict } from '@/api/sync'
 import type { SyncConflict, FieldDiff } from '@/types'
 import AppButton from '@/components/ui/AppButton.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { formatDateTime } from '@/utils/date'
 
 const route = useRoute()
@@ -132,23 +146,25 @@ const errorMsg = ref('')
 const conflict = ref<SyncConflict | null>(null)
 const diffs = ref<FieldDiff[]>([])
 const resolution = reactive<Record<string, string>>({})
+const confirmRemote = ref(false)
 
 function resolveAllLocal() {
   diffs.value.forEach((d) => {
     resolution[d.field] = 'local'
   })
+  // Stated, not left unset: a failed "apply remote" leaves '*' behind in this map, and an
+  // unset wildcard would let it decide this request instead.
+  resolution['*'] = 'local'
   if (diffs.value.length === 0) handleResolve()
 }
 
+// Only reachable from the quick-resolve buttons, which render when no field diffs were
+// stored — so there are no per-field keys to set and the wildcard is the whole message.
+// The server reads '*' as the choice for every field it is not told about individually.
 function resolveAllRemote() {
-  diffs.value.forEach((d) => {
-    resolution[d.field] = 'remote'
-  })
-  if (diffs.value.length === 0) {
-    // No diffs stored — signal full remote override
-    resolution['*'] = 'remote'
-    handleResolve()
-  }
+  confirmRemote.value = false
+  resolution['*'] = 'remote'
+  handleResolve()
 }
 
 async function handleResolve() {
@@ -171,11 +187,7 @@ onMounted(async () => {
   try {
     const { data } = await getConflict(id)
     conflict.value = data
-    try {
-      diffs.value = JSON.parse(data.field_diffs) as FieldDiff[]
-    } catch {
-      diffs.value = []
-    }
+    diffs.value = parseFieldDiffs(data.field_diffs)
     // Default all conflicting fields to "local"
     diffs.value.forEach((d) => {
       resolution[d.field] = 'local'

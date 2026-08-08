@@ -324,7 +324,7 @@ reused, and each is replaced below by a labelled cross-reference. The surviving 
   warn against running a pipeline (`cmd/server/reencode.go:94-99`).
 - **FR-041** *(withdrawn — see 008 FR-062)*: that a subcommand must not run migrations and must
   refuse to operate on a schemaless database, exiting 5, is the CLI **dispatch contract**, owned by
-  `specs/008-runtime-configuration-and-delivery/spec.md` and implemented in `cmd/server/cli.go:108-136`
+  `specs/008-runtime-configuration-and-delivery/spec.md` and implemented in `cmd/server/cli.go:109-138`
   — a file this spec does not own. `reencode-vcards` is a caller of that contract and inherits it
   unchanged: FR-031..FR-040 state only what the command does to stored cards.
 
@@ -528,7 +528,7 @@ SC-008 (`:286-288`).
    `ContentHash` (`internal/sync/engine.go:663`) and `ContactETag`
    (`internal/service/contact.go:348`) — and beyond those two exported functions at least six
    further private copies of the same two formulas exist:
-   `internal/carddav/backend.go:274`, `internal/sync/internal_provider.go:47,73,93`,
+   `internal/carddav/backend.go:287-288`, `internal/sync/internal_provider.go:47,73,93`,
    `internal/sync/carddav_client.go:242,391`, `internal/service/sync_conflict.go:163,168`.
    Nothing keeps them in step; an encoder change that moved hashes would have to be traced through
    all eight sites by hand.
@@ -548,7 +548,7 @@ SC-008 (`:286-288`).
    stores the file's own card text (`internal/service/importer.go:76,91`), and
    `PUT /contacts/:id` with `vcard_data` stores the caller's string
    (`internal/service/contact.go:170-171`). Cards arriving over CardDAV or from a remote CardDAV
-   server *are* re-encoded (`internal/carddav/backend.go:273`,
+   server *are* re-encoded (`internal/carddav/backend.go:274`,
    `internal/sync/carddav_client.go:390`). So legacy escaping can still enter the database through
    import, and `reencode-vcards` remains a live remedy rather than a one-off migration.
 
@@ -595,3 +595,4 @@ SC-008 (`:286-288`).
 |------|-----|--------|----------|
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Conformed to the house template. Withdrew FR-028, FR-029 and FR-030 to spec 007 and FR-041 to spec 008 under constitution Principle VII; numbers retired, not reused. Moved eight admissions out of Edge Cases into Known Divergences and added four more (unenforced FR-010, untested FR-020/FR-021, indirectly enforced FR-005/FR-009, untested splitter discard). | — |
+| 2026-08-07 | unreleased | Citations only; no requirement changed. Three line references into files this spec does not own were re-anchored after D1 and D3 moved them: the `sha256`/`hex` copy of the ETag formula in `internal/carddav/backend.go` (`:274` → `:287-288`, moved by the 413 check), the `cardToString` re-encode on the same PUT path (`:273` → `:274`), and `openCLIDatabase` in `cmd/server/cli.go` (`:108-136` → `:109-138`, which now also returns the loaded config). Specs 001, 004 and 008 were re-anchored by those changes; this one was missed. | D1, D3 |

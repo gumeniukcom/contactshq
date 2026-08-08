@@ -1,12 +1,17 @@
 package sync
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/emersion/go-vcard"
 )
+
+// ErrRemoteCardEmpty is returned when a wildcard resolution asks for the remote card and
+// there is no remote card to take.
+var ErrRemoteCardEmpty = errors.New("cannot resolve to the remote card: it is empty")
 
 // FieldConflict describes a per-field conflict between local and remote vCard.
 type FieldConflict struct {
@@ -121,11 +126,28 @@ func MergeVCards(base, local, remote string) (*MergeResult, error) {
 	return result, nil
 }
 
+// wildcardField is the resolution key meaning "every field not named individually".
+// The conflict UI sends `{"*": "remote"}` alone for "Apply remote (source wins)": that
+// button only renders when the conflict carries no stored field diffs, so there are no
+// per-field keys to send with it.
+const wildcardField = "*"
+
 // ApplyResolution builds a final vCard based on the user's field-level choices.
 //
-// resolution maps field type → "local" | "remote" (or a literal vCard field line for custom).
-// Fields not present in the map default to local.
+// resolution maps field type → "local" | "remote". Anything else, including a literal
+// vCard line, is read as "local". The wildcardField key supplies the choice for every
+// field the map does not name; without it, unnamed fields default to local.
+//
+// A choice of "remote" removes any property the remote card does not carry — that is what
+// "the remote version won" means. Resolving the wildcard to "remote" against an empty
+// remote card would leave nothing but UID and VERSION, so it is refused with
+// ErrRemoteCardEmpty rather than collapsing the contact.
 func ApplyResolution(base, local, remote string, resolution map[string]string) (string, error) {
+	fallback := resolution[wildcardField]
+	if fallback == "remote" && strings.TrimSpace(remote) == "" {
+		return "", ErrRemoteCardEmpty
+	}
+
 	localCard, err := parseCard(local)
 	if err != nil {
 		return "", fmt.Errorf("parse local vcard: %w", err)
@@ -152,7 +174,10 @@ func ApplyResolution(base, local, remote string, resolution map[string]string) (
 		if skipFields[field] {
 			continue
 		}
-		choice := resolution[field]
+		choice, ok := resolution[field]
+		if !ok {
+			choice = fallback
+		}
 		switch choice {
 		case "remote":
 			if remoteCard[field] != nil {

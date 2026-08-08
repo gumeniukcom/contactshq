@@ -6,6 +6,155 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 uses [Semantic Versioning](https://semver.org/). While the major version is `0`, breaking
 changes may appear in a minor release.
 
+## [Unreleased]
+
+### ⚠️ Breaking
+
+- **A CardDAV card larger than `carddav.max_resource_bytes` (1 MiB by default) is now actually
+  refused with `413`.** v0.4.0 announced the limit to clients as `CARDDAV:max-resource-size`
+  and never compared anything against it; the v0.4.0 entry below claimed the `413` and was
+  wrong. It is real now, on `PUT` through `/dav` only.
+
+  **Read this before upgrading if you have ever stored a large contact — one with an embedded
+  photo is the usual case.** The limit is checked on the CardDAV write path and nowhere else:
+  `POST /api/v1/contacts`, `POST /import/*` and inbound sync can all still store a card above
+  it, and `GET` still serves one. So an oversized contact syncs down to a phone perfectly and
+  then can never be edited *from* that phone — the phone's save gets a `413`, and most CardDAV
+  clients retry it forever rather than tell the user. Find out first:
+
+  ```sql
+  -- PostgreSQL: cards above the 1 MiB default
+  SELECT id, uid, octet_length(vcard_data) AS bytes
+  FROM contacts WHERE octet_length(vcard_data) > 1048576 ORDER BY bytes DESC;
+  -- SQLite: use length(CAST(vcard_data AS BLOB)) instead of octet_length(...)
+  ```
+
+  If that returns rows, raise `CHQ_CARDDAV_MAX_RESOURCE_BYTES` above the largest of them before
+  upgrading, or shrink those contacts' photos. Note the limit is applied to the card **as
+  stored** (re-encoded), not to the bytes on the wire, and that it is policy rather than
+  protection: `server.max_body_bytes` is still the only limit that bounds memory, because
+  fasthttp reads the whole body before any handler runs.
+
+- **A sync credential stored before v0.4.0 with an `http://` endpoint is now refused at run
+  time.** v0.4.0 validated endpoints at the four places one can be *entered*, and a pipeline
+  step that names a `credential_id` carries no endpoint of its own — so the check found nothing
+  to look at and the stored row was used as it stood. Every run of such a step has been sending
+  the provider's password, or an OAuth bearer token, in clear text. The endpoint is now
+  validated after the credential is resolved, on the value the connection is actually made
+  with, which also covers the OAuth path and does so before the token exchange rather than
+  after it.
+
+  **If you sync against a CardDAV server over plain http, set
+  `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true` (`sync.allow_insecure_endpoints`) before
+  upgrading** — the same variable v0.4.0 introduced, which now covers stored credentials too.
+  Nothing rewrites your database; the credential is untouched and the variable brings it back.
+  The failure is per step: it is recorded against that step in the pipeline's run history and
+  logged, and the pipeline's other steps still run. Google credentials are unaffected, as is
+  the internal provider.
+
+  Do **not** reach for the credential's `skip_tls_verify` box instead. It is not an answer to
+  this: it leaves `https://` in the URL while removing the verification that makes it mean
+  anything, so the password reaches an on-path attacker exactly as `http://` did. That box is
+  still honoured and is still not validated here.
+
+### Fixed
+
+- **The sync conflict screens no longer render blank.** When a conflict carried no field-level
+  diffs — the ordinary manual-mode case, where the two sides edited *different* properties — the
+  server stored the diff list as `null` rather than `[]`. `JSON.parse("null")` returns null
+  without raising, so the guard the pages already had never fired and both the detail page and,
+  through a single such row, the whole conflicts list came up empty. Found while reviewing the
+  fix below, which puts a button on the page this bug prevented from rendering. Rows already
+  written as `null` are handled by the browser, so no data has to be rewritten.
+- **"Apply remote (source wins)" on a sync conflict now actually applies the remote card.**
+  When a conflict carried no per-field diffs, the button reported success and changed nothing:
+  the browser sent a wildcard instruction meaning "take the remote card wholesale" and the
+  server had never implemented its half, so it kept the local card and marked the conflict
+  resolved. Every use of that button since it shipped silently kept the local version.
+  **Read this before you use it again.** Now that it works, it does the destructive thing it
+  always claimed to: the remote card replaces the contact, and any property that exists only
+  locally — a note, a title, a phone the remote does not have — is removed, not merged. On the
+  ordinary manual-mode conflict, where the two sides edited different fields, that means your
+  local edits go away. The button now asks for confirmation and says so.
+  There is no undo in the app. The pre-resolution card is still stored on the conflict row
+  (`local_vcard`) and is returned by `GET /api/v1/sync/conflicts/:id`, but no screen shows it
+  and the row is marked `resolved`, so recovering a mistake means reading that field over the
+  API or the database and restoring the contact by hand. Per-field resolution is unaffected.
+- **The contact form no longer discards `GEO`.** `GEO` is one of the vCard properties an edit
+  replaces wholesale, and the form payload had no field for it, so saving a contact from the
+  web UI wrote an empty `GEO` over whatever the card arrived with — and pushed the loss out to
+  every synced client on the next run. The form now carries the stored value through untouched.
+  There is still no input for it: you cannot set or change a location from the browser, only
+  keep the one that is there.
+  Note for API callers: `fields` is a full replacement of the properties it covers, so a `PUT`
+  whose `fields` object omits `geo` still clears `GEO`, exactly as omitting `note` clears the
+  note. Send the value back if you want to keep it.
+- **`set-password` was telling operators that a compromised session survives 24 hours when it
+  survives one.** The success message quoted "default 24h" for access tokens and "default 720h"
+  for refresh tokens; 0.4.0 changed those defaults to `1h` and `168h` and the text was not moved
+  with them. Telling an operator how long the old credential outlives the reset is the only job
+  that message has, so being wrong by 24× is the whole message failing. It now reads
+  `auth.token_ttl` and `auth.refresh_ttl` out of the configuration the command itself loaded,
+  and says plainly that those are the values *this* process read: a subcommand cannot see the
+  environment of a server it is not running in, so run it where the server's configuration is
+  (`docker compose exec`, not a separate `docker run` with a different `-e` set). This is the
+  second place those two numbers went stale after 0.4.0; `config.example.yaml` was the first.
+- **`set-password` no longer asks for a password before checking that the database has a
+  schema.** On an unmigrated database it prompted twice and only then exited `5`. The check
+  comes first now. Against a migrated database nothing changes; against an unmigrated one, a run
+  that previously reported a usage error (`2` — a missing `--stdin`, say) now reports `5`,
+  because the database is reached first.
+- **Duplicate detection now looks at every email address and phone number a contact has, not
+  just the first one.** It bucketed on the `contacts.email` and `contacts.phone` columns alone,
+  so two records for one person who share only a second address or a second number were never
+  compared — while the pair list, which reads `contact_emails` and `contact_phones` to decide
+  whether a one-click "Keep A" is lossless, was already using exactly that data. The list could
+  therefore call a merge provably safe for a pair the detector had never been able to find.
+
+  **Expect the first scan after upgrading to report more pairs than the last one before it.**
+  That is the fix working. The scan summary will look odd while it does: "checked" is still the
+  number of contacts and is unchanged, while "found" jumps. Nothing is wrong; the pairs were
+  always there.
+
+  **A smaller number of duplicates may stop being reported, and this one is worth reading.**
+  A value shared by more than 500 contacts is treated as saying nothing about identity and its
+  whole group is skipped — that has always been true, but the count now includes secondary
+  values. An office number held by 300 people on their contact row and by another 250 as a
+  second number is now one group of 550 and is dropped, where the 300 were compared before.
+  The skip is a log line (`skipping an implausibly large duplicate bucket`) and appears nowhere
+  in the API or the UI, so if pairs you used to see have gone, that warning is where to look.
+
+  Only emails and phone numbers are read from the child tables; addresses, URLs, messaging
+  handles, tags and dates are not, because nothing scores a match on them. A scan costs more
+  memory than it did — roughly 7 MB instead of 5 MB per 10 000 contacts before any secondary
+  values, and about 17 MB for a book where every contact has two of each — and about twice the
+  time. It remains milliseconds, not the 39 seconds it cost before v0.3.0.
+- **Downloading a backup names the file and reports its own failures.**
+  `GET /api/v1/backup/download/:id` sent the bytes with no `Content-Disposition`, leaving every
+  client to infer a name from the URL; the three export endpoints have always set one. It now
+  answers `attachment; filename="backup-YYYYMMDD-HHMMSS-mmm.vcf.gz"`. The response's
+  `Content-Type` is still inferred from the extension rather than chosen, which the exports do
+  set — that half is not fixed.
+  On the Backup screen the download button had no error path at all: a backup deleted in another
+  tab answered `404` and the button did nothing — no message, no console line, nothing to
+  distinguish it from a slow download. It now says so.
+
+### Upgrading
+
+No migrations. Before starting the new version:
+
+1. If any sync pipeline reaches a provider over plain `http://` — including through a credential
+   saved before v0.4.0, which used to be exempt — set `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true`,
+   or those steps will start failing. Turning on a credential's `skip_tls_verify` is not a
+   substitute and does not make the transport confidential.
+2. If any stored contact is larger than `carddav.max_resource_bytes` (1 MiB by default), raise
+   `CHQ_CARDDAV_MAX_RESOURCE_BYTES` above the largest of them or shrink them. The query to find
+   them is above. Otherwise those contacts become read-only from every CardDAV device.
+3. Expect the first duplicate scan after upgrading to report more pairs. If pairs you used to see
+   have instead disappeared, look for `skipping an implausibly large duplicate bucket` in the log.
+4. Take a database dump anyway before resolving any sync conflict with **Apply remote (source
+   wins)**: that button now does what it always said it did, and the app has no undo for it.
+
 ## [0.4.0] — 2026-08-07
 
 Limits, timeouts, and a request-forgery surface closed. Small in code, but three of these
@@ -30,9 +179,11 @@ upgrading.
 - **Access tokens now live 1 hour instead of 24, and refresh tokens 7 days instead of 30.**
   The web UI refreshes transparently. A script that grabs a token and reuses it for a day will
   need to call `POST /auth/refresh`; a session idle for more than a week now requires a login.
-- **Request bodies are capped at 32 MiB** (`CHQ_SERVER_MAX_BODY_BYTES`), imports likewise, and
-  a single CardDAV card at 1 MiB. A larger upload gets a `413` instead of being read into
-  memory. Raise the limits if you import bigger files — but note the cap is what bounds memory:
+- **Request bodies are capped at 32 MiB** (`CHQ_SERVER_MAX_BODY_BYTES`) and imports likewise; a
+  larger upload gets a `413` instead of being read into memory. A per-card CardDAV limit of
+  1 MiB was *advertised* to clients here, but not enforced until Unreleased above — this entry
+  originally claimed the `413` and was wrong.
+  Raise the limits if you import bigger files — but note the cap is what bounds memory:
   fasthttp reads a whole body before any handler runs, so N concurrent uploads cost N × that.
 
 ### Added
@@ -215,6 +366,7 @@ writes, and trusted-proxy support for per-client rate limiting.
 
 First tagged release.
 
+[Unreleased]: https://github.com/gumeniukcom/contactshq/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.4.0
 [0.3.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.3.0
 [0.2.0]: https://github.com/gumeniukcom/contactshq/releases/tag/v0.2.0

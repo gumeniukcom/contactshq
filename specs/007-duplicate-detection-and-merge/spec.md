@@ -51,6 +51,12 @@ merge screen.
    (`internal/service/duplicate_detect_test.go:235-248`).
 5. **Given** a scan has already been run and nothing has changed, **When** it is run again,
    **Then** zero new pairs are reported (`internal/service/duplicate_detect_test.go:121-135`).
+6. **Given** two contacts with different primary addresses that share only a **second** email —
+   or a **second** phone number — **When** detection runs, **Then** they are paired exactly as if
+   the shared value had been the primary one
+   (`internal/service/duplicate_detect_test.go:329-372`). Before this behaviour existed, the
+   pair list could offer a "lossless" one-click merge for two records the detector had never
+   found, because the subset check reads the same tables the detector did not.
 
 ---
 
@@ -282,7 +288,23 @@ reader would expect, the entry says so and **Known Divergences** carries the adm
 - **FR-001**: Detection MUST group a user's contacts by the keys that can produce a match — the
   lower-cased trimmed email address and the digits-only phone number — and compare only within a
   group. Email keys and phone keys MUST NOT collide.
-  (`internal/service/duplicate_detector.go:112-123`)
+  (`internal/service/duplicate_detector.go:122-172`)
+- **FR-001a**: Those keys MUST be drawn from **every** email and phone number a contact holds,
+  not only from the `contacts.email` and `contacts.phone` columns: a person's second address
+  identifies them exactly as well as their first, and the subset check that decides whether a
+  one-click merge is lossless has always read `contact_emails` and `contact_phones` (FR-018), so
+  a detector that could not see them let the list prove a pair safe to collapse on data the
+  detector was never shown. The child values MUST be **added** to the keys from the flat columns,
+  never substituted for them — migration 014 created the child tables and backfilled nothing
+  (constitution Principle I), so a contact stored before it has a populated `contacts.email` and
+  no `contact_emails` row until something re-saves it.
+  (`internal/service/duplicate_detector.go:109-117,151-172`,
+  `internal/repository/bun_contact.go:320-359`)
+- **FR-001b**: One contact MUST appear in one bucket at most once. Nearly every contact holds its
+  primary address in both the flat column and the child table, and a repeated entry would not
+  create a false pair — it would inflate `len(bucket)` against the cap of FR-010, pushing a
+  scannable bucket over it and getting the whole bucket skipped.
+  (`internal/service/duplicate_detector.go:126-135`)
 - **FR-002**: Contacts sharing no key MUST never be compared.
   (`internal/service/duplicate_detector.go:129-182`,
   `internal/service/duplicate_detect_test.go:199-215`)
@@ -319,9 +341,13 @@ reader would expect, the entry says so and **Known Divergences** carries the adm
   (`internal/service/duplicate_detector.go:28-29,94-97,204-218`,
   `internal/handler/duplicate_handler.go:157-163`)
 - **FR-012**: Detection MUST honour cancellation of its context, checked between buckets and
-  between inserts. (`internal/service/duplicate_detector.go:130-132,185-187`)
-- **FR-013**: Detection MUST read only the columns it compares, not whole contact rows.
-  (`internal/repository/bun_contact.go:305-318`)
+  between inserts. (`internal/service/duplicate_detector.go:183-185,238-240`)
+- **FR-013**: Detection MUST read only the columns it compares, not whole contact rows. The
+  child values of FR-001a MUST come from two narrow `(contact_id, value)` projections, not from
+  a relation load and not from a join onto the contact rows: `Relation("Emails")` pulls
+  `vcard_data` and `photo_uri` — tens of megabytes read and discarded on ten thousand contacts —
+  and a join repeats every selected contact column once per child row.
+  (`internal/repository/bun_contact.go:305-359`, `internal/domain/contact.go:61-70`)
 - **FR-014**: Detection MUST report how many contacts were examined and how many **new** pairs
   were recorded. (`internal/service/duplicate_detector.go:59-62,109,195-197`)
 
@@ -526,12 +552,16 @@ reader would expect, the entry says so and **Known Divergences** carries the adm
 
 ### Measurable Outcomes
 
-- **SC-001**: A scan of **10 000 contacts completes in about 8 milliseconds**, down from
-  **38.9 seconds**, allocating 4.9 MB instead of 13.6 GB — roughly a 4800× improvement, measured
-  2026-08-06 on the maintainer's machine.
+- **SC-001**: A scan of **10 000 contacts completes in tens of milliseconds**, down from
+  **38.9 seconds** and 13.6 GB — roughly a 1500× improvement. Measured 2026-08-06 on the
+  maintainer's machine at 8 ms and 4.9 MB, before detection read the child tables; re-measured
+  2026-08-07 on an Apple M3 at about 25 ms and 16.8 MB for a book where every contact holds two
+  emails and two phone numbers, and about 10 ms and 7.3 MB for the same fixture as 2026-08-06.
+  The two dates are different machines and only the same-day pairs are comparable.
 - **SC-002**: Cost grows close to linearly with the address book: ten times the contacts costs
-  about thirteen times the work (0.6 ms → 8.0 ms), where it previously cost about a hundred times
-  (0.39 s → 38.9 s).
+  about fourteen times the work (1.8 ms → 25 ms, measured 2026-08-07 with secondary values),
+  where it previously cost about a hundred times (0.39 s → 38.9 s). Near-linearity is the
+  property that matters; a super-linear figure would mean all-pairs comparison had come back.
 - **SC-003**: Re-running detection over an unchanged address book records **zero** new pairs, and
   a dismissal survives every later scan.
 - **SC-004**: At most one detection run per account is ever in flight; a second attempt is
@@ -565,10 +595,12 @@ are stated as such; where a limitation costs the user something, **Known Diverge
   test so nobody changes it by accident
   (`internal/service/duplicate_detect_test.go:71-81`). Two records for one person with no shared
   email and no shared phone are, by design, not duplicates as far as this system is concerned.
-- **The primary email and phone columns represent the contact for detection purposes.** It was a
-  performance decision — reading whole contact rows for a scan that looks at four fields is what
-  the column-limited query exists to avoid (`internal/repository/bun_contact.go:305-318`). What
-  it costs is recorded under Known Divergences.
+- **Every email and phone a contact holds represents it for detection purposes, but nothing
+  else does.** The flat columns and the two child tables are read; the other five child
+  collections are not, because the scorer has no kind of match for them
+  (`internal/repository/bun_contact.go:305-359`). Reading them still has to stay cheap: two
+  two-column projections rather than whole contact rows, for the same reason the column-limited
+  query exists at all. What that costs is recorded under Known Divergences.
 - **One address book per user.** Detection resolves the address book through
   `GetOrCreateByUserID` (`internal/service/duplicate_detector.go:99-102`), and merge does the
   same. Cross-book duplicates are not a concept here.
@@ -699,9 +731,12 @@ Paths this spec touches but does **not** own.
   including the ordering that keeps `/duplicates/count` from being swallowed by
   `/duplicates/:id`, and the `expensive` rate limiter on `/duplicates/detect`.
 
-Boundaries with sibling specs, stated so ownership is unambiguous: `ListForDedup`
-(`internal/repository/bun_contact.go:305-318`), which FR-013 cites, lives in the contact
-repository and belongs to 002; `web/src/components/layout/Sidebar.vue`, cited by User Story 6,
+Boundaries with sibling specs, stated so ownership is unambiguous: `ListForDedup` and
+`ListDedupValues` (`internal/repository/bun_contact.go:305-359`), which FR-013 and FR-001a cite,
+live in the contact repository and belong to 002, as does `domain.ContactValueRef`
+(`internal/domain/contact.go:61-70`); `internal/repository/migrate_postgres_test.go`, which
+holds `TestPostgresListDedupValues`, belongs to 008 — this domain's PostgreSQL enforcers have
+always lived there; `web/src/components/layout/Sidebar.vue`, cited by User Story 6,
 belongs to the layout owner; `CHANGELOG.md`, cited for the pre-v0.4.0 history, is release
 documentation and belongs to nobody's `## Code Paths`.
 
@@ -715,19 +750,36 @@ Detection:
 - `TestDetect_CharacterisesCurrentBehaviour` (`internal/service/duplicate_detect_test.go`) —
   FR-003, FR-004, and the "a name alone never matches" rule behind Story 1 scenario 3.
 - `TestDetect_BucketsByKey` (`internal/service/duplicate_detect_test.go`) — FR-001, FR-002.
+- `TestDetect_PairsOnASecondaryEmail`, `TestDetect_PairsOnASecondPhone`
+  (`internal/service/duplicate_detect_test.go`) — FR-001a. Both reported zero pairs before the
+  child tables were read.
+- `TestDetect_StillPairsAContactWithNoChildRows`
+  (`internal/service/duplicate_detect_test.go`) — FR-001a's union half: the pre-014 contact that
+  has flat columns and no child rows is still paired.
+- `TestDetect_DoesNotInflateABucketWhenThePrimaryAlsoAppearsAsAChildRow`
+  (`internal/service/duplicate_detect_test.go`) — FR-001b. It asserts the bucket is still
+  *scanned* rather than the pair count, because a repeated entry costs a bucket its scan, not a
+  duplicate row: 300 contacts whose primary phone is also a child row make one bucket of 300,
+  under the cap; without the guard the bucket is 600 and skipped.
 - `TestDetect_NormalisesPairOrder` (`internal/service/duplicate_detect_test.go`) — FR-007.
 - `TestDetect_PairFoundByTwoKeysIsRecordedOnce` (`internal/service/duplicate_detect_test.go`) —
   FR-009.
 - `TestDetect_DoesNotDuplicateAnExistingPair` (`internal/service/duplicate_detect_test.go`) —
   FR-008, SC-003.
-- `TestDetect_SkipsImplausiblyLargeBuckets` (`internal/service/duplicate_detect_test.go`) —
-  FR-010.
+- `TestDetect_SkipsImplausiblyLargeBuckets`,
+  `TestDetect_SkipsImplausiblyLargeBucketsBuiltFromChildValues`
+  (`internal/service/duplicate_detect_test.go`) — FR-010, including that the cap counts a
+  switchboard number held in `contact_phones` exactly as it counts one held on the row.
 - `TestDetect_RefusesAConcurrentRunForTheSameUser` (`internal/service/duplicate_detect_test.go`)
   — FR-011 (the service half), SC-004.
 - `TestDetect_HonoursContextCancellation` (`internal/service/duplicate_detect_test.go`) — FR-012.
 - `TestDetect_EmptyAddressBook` (`internal/service/duplicate_detect_test.go`) — FR-014.
-- `BenchmarkDetect` (`internal/service/duplicate_detect_test.go`) — SC-001, SC-002. Not run by
-  CI; see Known Divergences.
+- `BenchmarkDetect`, `BenchmarkDetectWithSecondaryValues`
+  (`internal/service/duplicate_detect_test.go`) — SC-001, SC-002. Neither is run by CI; see
+  Known Divergences. `BenchmarkDetectWithSecondaryValues` bounds the Go-side bucketing cost of
+  FR-001a only — it runs against an in-memory repository and issues no query, so it says nothing
+  about the cost of reading `contact_emails` and `contact_phones`, which is argued on
+  `ListDedupValues` and pinned by `TestPostgresListDedupValues` instead.
 - `TestScoreContacts_ExactEmailMatch`, `TestScoreContacts_DifferentEmail_PhoneMatch`,
   `TestScoreContacts_NameExactMatch`, `TestScoreContacts_NameSimilar`, `TestScoreContacts_NoMatch`
   (`internal/service/duplicate_detector_test.go`) — characterisation of the pre-bucket scorer that
@@ -804,6 +856,11 @@ Scheduling and the job:
 **PostgreSQL** — package `repository`, run by `go test ./internal/repository/ -run TestPostgres`
 in the `postgres` job of `.github/workflows/ci.yml`:
 
+- `TestPostgresListDedupValues` (`internal/repository/migrate_postgres_test.go`) — FR-013's
+  narrow-projection half and FR-001a's scoping, on the other driver. It is the only PostgreSQL
+  coverage `ListDedupValues` gets: the `postgres` job runs `-run TestPostgres` against package
+  `repository` alone, so a test elsewhere, or one without that name prefix, never executes
+  against PostgreSQL at all.
 - `TestPostgresPotentialDuplicateUniqueIndex` (`internal/repository/migrate_postgres_test.go`) —
   FR-008 on the other driver.
 - `TestPostgres_MergeLogRoundTrip` (`internal/repository/migrate_postgres_test.go`) — FR-042 on
@@ -851,16 +908,37 @@ in the `postgres` job of `.github/workflows/ci.yml`:
 Where shipped behaviour is narrower, rougher or more surprising than the requirements above
 suggest. None of these is presented as a solved requirement.
 
-**Detection is blind to the child tables.** `ListForDedup` selects `id, first_name, last_name,
-email, phone` (`internal/repository/bun_contact.go:309-317`), and the buckets are built from
-`c.Email` and `c.Phone` only (`internal/service/duplicate_detector.go:115-123`). Two records that
-share only a **secondary** email or a **second** phone number are therefore never paired. The
-asymmetry is sharp: the subset flags that decide whether a one-click merge is lossless *do* read
-`contact_emails` and `contact_phones` (`internal/repository/bun_potential_duplicate.go:156-170`),
-so the list can prove a pair is safe to collapse using data the detector never looked at. Open:
-is this a known trade-off or an oversight? The comment on `ListForDedup`
-(`internal/repository/bun_contact.go:305-308`) justifies the narrow column list on read cost and
-says nothing about the secondary values it thereby cannot see.
+**Reading the child tables costs half again as much memory, on every scan.** Detection no
+longer ignores secondary emails and phone numbers (FR-001a), but the `seen` set that keeps one
+contact out of one bucket twice (`internal/service/duplicate_detector.go:126-135`) is allocated
+whether or not there is anything to de-duplicate. Measured on one machine in one session, the
+child-row-free fixture went from 4.9 MB to 7.3 MB per scan at ten thousand contacts with the
+time unchanged inside the noise (`internal/service/duplicate_detect_test.go:181-192`). SC-001's
+4.9 MB was measured before this change and is no longer what the code allocates.
+
+**The bucket cap now counts secondary values, so a shared address can hide a pair that used to
+be reported.** `maxBucketSize = 500` is applied to the union of flat and child values
+(`internal/service/duplicate_detector.go:26,189-195`). A key that stayed under the cap while only
+the `phone` column fed it can now cross it — an office number held by 300 people on their contact
+row and by another 250 as a second number is a single bucket of 550 and is dropped. The pairs
+inside it were reported before this change and are not reported after it. The drop is a log
+warning; nothing in the API or the UI says so, which is the divergence recorded below about
+oversized buckets, now with a wider reach.
+
+**Detection reads only the emails and phones from the child tables.** The other five child
+collections — addresses, URLs, IMs, categories, dates — are not read, because none of them is a
+key the scorer can match on (`internal/service/duplicate_detector.go:290-318`: the only kinds are
+`email` and `phone`). This is narrower than "detection sees the child tables" and is deliberate:
+reading a table nobody buckets on would be cost with no pairs behind it.
+
+**The subset check and the detector agree on which values matter, but not on how they compare
+them.** Both now read `contact_emails` and `contact_phones`, which is what closed the old
+asymmetry. They still normalise differently: the detector lower-cases and trims an email and
+keeps digits only from a phone in Go (`internal/service/duplicate_detector.go:143-171,360-371`),
+while the subset flags do it in SQL with `lower()` and nested `REPLACE`
+(`internal/repository/bun_potential_duplicate.go:153-181`), whose replacement list is
+` `, `-`, `(`, `)`, `+`, `.` — so a phone written with any other punctuation normalises one way
+for the detector and another for the subset check. Two implementations of one rule.
 
 **The subset check compares emails and phones and nothing else.** A record whose only unique
 contribution is a note, a birthday or a URL is still reported as a subset, and the one-click
@@ -938,9 +1016,9 @@ handler (`internal/worker/jobs/dedup_job.go:80`) or once at startup
 and never constructs the handler with a merge-log repository. Deleting either call site would
 turn no test red.
 
-**This domain has no handler tests.** `internal/handler/` holds only `health_test.go` and
-`registration_policy_test.go`; there is no `duplicate_handler_test.go`. Everything the handler
-alone decides is unenforced: the 409 for a refused scan (FR-011), the status defaulting and the
+**This domain has no handler tests.** `internal/handler/` holds only `health_test.go`,
+`registration_policy_test.go` and `backup_download_test.go`; there is no
+`duplicate_handler_test.go`. Everything the handler alone decides is unenforced: the 409 for a refused scan (FR-011), the status defaulting and the
 `all` keyword (FR-015), the page-size clamp that SC-012 rests on (FR-016), the 403 on another
 user's pair (FR-023), the count endpoint (FR-024), cron validation (FR-026), and the immediate
 re-registration on save (FR-027 — the scheduler helpers are tested, the handler's call into them
@@ -949,11 +1027,19 @@ is not). FR-016 in particular is a regression fix with no regression test.
 **FR-028 is unenforced.** The startup loop in `cmd/server/main.go:177-186` has no test; only the
 repository read it depends on (`TestDedupSettings_ListAllReturnsAll`) does.
 
-**SC-001 and SC-002 are a benchmark, not a gate.** `BenchmarkDetect` is not run by CI
-(`.github/workflows/ci.yml` runs `go test ./... -count=1 -race`, which does not execute
-benchmarks). The figures are a single measurement taken on one machine on 2026-08-06, recorded in
-`internal/service/duplicate_detect_test.go:153-165` and restated in `CHANGELOG.md:155-161`. A
-future change that reintroduced the quadratic scan would not redden the build.
+**SC-001 and SC-002 are a benchmark, not a gate.** Neither `BenchmarkDetect` nor
+`BenchmarkDetectWithSecondaryValues` is run by CI (`.github/workflows/ci.yml` runs
+`go test ./... -count=1 -race`, which does not execute benchmarks). The figures are hand
+measurements from two machines on two days, recorded in the comments above each benchmark and
+restated in `CHANGELOG.md`. A future change that reintroduced the quadratic scan would not redden
+the build.
+
+**No benchmark measures the query.** Both benchmarks run against `mockContactRepo`, an in-memory
+map, so the I/O cost of `ListDedupValues` — the only genuinely new cost in FR-001a — is argued
+from the query shape and the indexes it uses (`internal/repository/bun_contact.go:320-359`) and
+pinned only by `TestPostgresListDedupValues` asserting the projection is two columns wide. An
+address book whose child tables are far larger than its contact table would cost more than the Go
+figures suggest, and nothing here would show it.
 
 **Ownership is enforced two different ways.** `GetByIDWithContacts` filters on `user_id` inside
 the query (`internal/repository/bun_potential_duplicate.go:67-74`), which is what `Get` and the
@@ -1001,3 +1087,5 @@ characterisation test can pin what the bucketed scan must reproduce
 |------|-----|--------|----------|
 | 2026-08-07 | — | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | — | Rewritten to the house template: header replaced (Kind/Status/Constitution; `Feature Branch`, `Created`, `Status: Implemented` and the scope-note comment removed), `Dependencies` and `Out of Scope` folded into Assumptions, `Open Questions` folded into Known Divergences, and `Status`/`Code Paths`/`References`/`Enforced By`/`Known Divergences`/`Amendments` added in template order. Ownership narrowed to an explicit per-file list; `References` restated as an eight-entry list with owning spec named. Every admission moved out of Edge Cases and Assumptions into Known Divergences, leaving Edge Cases as answered boundary conditions. `Enforced By` written from grep-verified test names, and five unenforced areas (handler layer, FR-028, FR-049, benchmark-only SC-001/SC-002, FR-021) recorded as gaps. FR-021, FR-032 and FR-033 restated so each is stated once and unambiguously, since sibling specs defer here. SC-001/SC-002 stripped of their test-file citations, which the template's success-criteria lint rejects. The open question about missing Spec Kit templates is closed: `.specify/templates/overrides/spec-template.md` and `.specify/memory/constitution.md` now exist and are what this rewrite followed. | — |
+| 2026-08-07 | unreleased | **D5** — detection now buckets on secondary emails and second phone numbers, not only on `contacts.email` / `contacts.phone`. Added FR-001a (union of flat and child values, never substitution — migration 014 backfilled nothing) and FR-001b (one contact per bucket at most once, because a repeated entry inflates the bucket against the cap of FR-010 rather than creating a false pair); widened FR-013 to require two narrow `(contact_id, value)` projections rather than a relation load or a join; corrected the Assumptions bullet that said the primary columns represent the contact. Removed the "Detection is blind to the child tables" divergence, which is no longer true, and replaced it with four narrower admissions: the `seen` set costs about 50% more memory on every scan (4.9 MB → 7.3 MB at 10 000 contacts, same machine and session), the bucket cap now counts secondary values and can therefore *stop* reporting a pair it used to report, only the two child tables the scorer can match on are read, and the detector and the subset check still normalise phone numbers two different ways. Restated SC-001/SC-002 with the new measurements and named the machines, since the 2026-08-06 and 2026-08-07 figures are not comparable. Added a divergence recording that no benchmark measures the new query. | — |
+| 2026-08-07 | unreleased | D4: corrected the statement that `internal/handler/` holds exactly two test files (it holds three; `backup_download_test.go` is owned by spec 005) and rewrapped the paragraph. Wording only; no requirement, enforcer or code path changed here. | D4 |

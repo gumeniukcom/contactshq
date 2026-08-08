@@ -147,6 +147,12 @@ func TestCreate_WithFieldsBuildsFullCard(t *testing.T) {
 	assert.NotEmpty(t, got.UID)
 }
 
+func TestContactFields_ToParsedCarriesGeo(t *testing.T) {
+	p := service.ContactFields{Geo: "geo:52.5,13.4"}.ToParsed("uid")
+
+	assert.Equal(t, "geo:52.5,13.4", p.Geo)
+}
+
 func TestContactFields_ToParsedSkipsEmptyValues(t *testing.T) {
 	f := service.ContactFields{
 		Emails:     []service.ContactFieldValue{{Value: ""}, {Value: "keep@example.com"}},

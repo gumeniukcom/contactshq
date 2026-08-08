@@ -42,6 +42,9 @@ export function toFieldsPayload(form: ContactFormData): ContactFieldsPayload {
     note: form.note,
     gender: form.gender,
     tz: form.tz,
+    // No input renders geo, but `fields` is a full replacement of the managed vCard
+    // properties: omitting it here deletes the stored GEO on every edit.
+    geo: form.geo,
     bday: toVCardDate(form.bday),
     anniversary: toVCardDate(form.anniversary),
     emails: values(form.emails),
@@ -82,6 +85,7 @@ export function formFromContact(contact: Partial<Contact>): ContactFormData {
     anniversary: toInputDate(contact.anniversary || ''),
     gender: contact.gender || '',
     tz: contact.tz || '',
+    geo: contact.geo || '',
     emails:
       contact.emails?.map((e) => ({ value: e.value, type: e.type || '' })) ??
       (contact.email ? [{ value: contact.email, type: '' }] : [{ value: '', type: '' }]),
@@ -121,6 +125,7 @@ export function emptyForm(): ContactFormData {
     anniversary: '',
     gender: '',
     tz: '',
+    geo: '',
     emails: [{ value: '', type: '' }],
     phones: [{ value: '', type: '' }],
     urls: [],

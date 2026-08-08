@@ -102,6 +102,7 @@
 </template>
 
 <script setup lang="ts">
+import { parseFieldDiffs } from '@/utils/sync-conflicts'
 import { ref, watch, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { listConflicts, dismissConflict } from '@/api/sync'
@@ -156,11 +157,7 @@ async function dismiss(id: string) {
 }
 
 function parsedDiffs(c: SyncConflict): FieldDiff[] {
-  try {
-    return JSON.parse(c.field_diffs) as FieldDiff[]
-  } catch {
-    return []
-  }
+  return parseFieldDiffs(c.field_diffs)
 }
 
 function statusClass(status: string) {

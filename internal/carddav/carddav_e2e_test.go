@@ -14,10 +14,12 @@ import (
 	"testing"
 	"time"
 
+	gvcard "github.com/emersion/go-vcard"
 	chqcarddav "github.com/gumeniukcom/contactshq/internal/carddav"
 	"github.com/gumeniukcom/contactshq/internal/config"
 	"github.com/gumeniukcom/contactshq/internal/repository"
 	"github.com/gumeniukcom/contactshq/internal/service"
+	chqvcard "github.com/gumeniukcom/contactshq/internal/vcard"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
@@ -49,6 +51,13 @@ func TestMain(m *testing.M) {
 
 func setupServer(t *testing.T) (*chqcarddav.Server, *bun.DB, string) {
 	t.Helper()
+	return setupServerWithMaxResourceSize(t, 0)
+}
+
+// setupServerWithMaxResourceSize builds the same server with a per-card size limit. Zero
+// leaves the backend as NewBackend returns it, which is what setupServer wants.
+func setupServerWithMaxResourceSize(t *testing.T, maxResourceBytes int64) (*chqcarddav.Server, *bun.DB, string) {
+	t.Helper()
 	ctx := context.Background()
 
 	sqldb, err := sql.Open(sqliteshim.ShimName, ":memory:?_pragma=foreign_keys(1)")
@@ -73,6 +82,9 @@ func setupServer(t *testing.T) (*chqcarddav.Server, *bun.DB, string) {
 	require.NoError(t, err)
 
 	backend := chqcarddav.NewBackend(userRepo, abRepo, contactRepo, davPrefix)
+	if maxResourceBytes > 0 {
+		backend = backend.WithMaxResourceSize(maxResourceBytes)
+	}
 	srv := chqcarddav.NewServer(backend, userRepo, appPwRepo, davPrefix)
 
 	return srv, db, user.ID
@@ -430,6 +442,65 @@ func TestETagHeaderIsSingleQuoted(t *testing.T) {
 		require.NotContains(t, inner, `"`, "%s ETag %q is doubly quoted", name, etag)
 		require.NotEmpty(t, inner)
 	}
+}
+
+// --- CARDDAV:max-resource-size ---
+
+// paddedCard returns sampleVCard with a NOTE of n characters, the cheap way to make a card
+// of a chosen order of magnitude.
+func paddedCard(n int) string {
+	return strings.Replace(sampleVCard, "END:VCARD", "NOTE:"+strings.Repeat("x", n)+"\r\nEND:VCARD", 1)
+}
+
+// storedSizeOf reports the length of the card as the backend will store it. go-webdav
+// decodes the request body and the backend re-encodes it through internal/vcard before the
+// limit is applied, so the raw body length is not the number being compared.
+func storedSizeOf(t *testing.T, raw string) int64 {
+	t.Helper()
+
+	card, err := gvcard.NewDecoder(strings.NewReader(raw)).Decode()
+	require.NoError(t, err)
+	return int64(len(chqvcard.CardToString(card)))
+}
+
+// The limit was advertised as CARDDAV:max-resource-size and never compared against
+// anything: a client that ignored the advertisement stored whatever it liked.
+func TestPutRejectsACardOverTheAdvertisedLimit(t *testing.T) {
+	srv, db, userID := setupServerWithMaxResourceSize(t, 512)
+	ctx := context.Background()
+
+	resp := do(t, srv, http.MethodPut, objectPath(), paddedCard(600),
+		map[string]string{"Content-Type": "text/vcard"})
+	require.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+
+	ab, err := repository.NewBunAddressBookRepository(db).GetOrCreateByUserID(ctx, userID)
+	require.NoError(t, err)
+	contact, err := repository.NewBunContactRepository(db).GetByUID(ctx, ab.ID, "contact-1")
+	require.NoError(t, err)
+	require.Nil(t, contact, "a refused card must not reach the database")
+}
+
+// A card exactly at the limit is not over it. Without this the check could be off by one
+// and nothing would notice.
+func TestPutAcceptsACardAtTheAdvertisedLimit(t *testing.T) {
+	limit := storedSizeOf(t, sampleVCard)
+	srv, _, _ := setupServerWithMaxResourceSize(t, limit)
+
+	resp := do(t, srv, http.MethodPut, objectPath(), sampleVCard,
+		map[string]string{"Content-Type": "text/vcard"})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+}
+
+// This pins the contract of NewBackend without WithMaxResourceSize — zero means "do not
+// check" — NOT a configuration an operator can reach: internal/config/config.go:355-358
+// refuses a non-positive carddav.max_resource_bytes, so the wiring in cmd/server/main.go
+// always hands the backend a positive limit.
+func TestPutIsUnboundedWhenNoLimitIsSet(t *testing.T) {
+	srv, _, _ := setupServer(t)
+
+	resp := do(t, srv, http.MethodPut, objectPath(), paddedCard(4096),
+		map[string]string{"Content-Type": "text/vcard"})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
 }
 
 // --- CTag and RFC 6578 collection synchronisation ---

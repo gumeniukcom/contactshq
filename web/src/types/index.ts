@@ -156,6 +156,12 @@ export interface ContactFormData {
   anniversary: string
   gender: string
   tz: string
+  /**
+   * Carried through the form without a control of its own: GEO is a managed vCard
+   * property, so a payload that omits it clears the stored value. Read from the contact
+   * and posted back unchanged. Do not drop it when refactoring the payload.
+   */
+  geo: string
   emails: ContactFormField[]
   phones: ContactFormField[]
   urls: ContactFormField[]
@@ -184,6 +190,8 @@ export interface ContactFieldsPayload {
   note: string
   gender: string
   tz: string
+  /** Round-tripped, not edited — see ContactFormData.geo. */
+  geo: string
   bday: string
   anniversary: string
   emails: { value: string; type: string }[]

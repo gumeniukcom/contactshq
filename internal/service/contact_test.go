@@ -19,6 +19,65 @@ func newContactSvc() (*service.ContactService, *mockContactRepo) {
 	return service.NewContactService(repo, abRepo), repo
 }
 
+// setupContactWithGeo stores a contact whose card carries a GEO property, as a card
+// imported from another CardDAV client or from Google would.
+func setupContactWithGeo(t *testing.T) (*service.ContactService, *domain.Contact) {
+	t.Helper()
+
+	repo := newMockContactRepo()
+	abRepo := &mockAbRepo{ab: &domain.AddressBook{ID: testAddressBookID, UserID: "u1"}}
+
+	contact := &domain.Contact{
+		ID:            "c1",
+		AddressBookID: testAddressBookID,
+		UID:           "uid-geo",
+		FirstName:     "Jane",
+		LastName:      "Doe",
+		Geo:           "geo:52.5,13.4",
+		VCardData: "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:uid-geo\r\nFN:Jane Doe\r\nN:Doe;Jane;;;\r\n" +
+			"GEO:geo:52.5,13.4\r\nEND:VCARD\r\n",
+	}
+	repo.contacts[contact.ID] = contact
+	repo.byUID[testAddressBookID+":uid-geo"] = contact
+
+	return service.NewContactService(repo, abRepo), contact
+}
+
+// GEO is a managed property, so MergeIntoVCard replaces it on every fields edit. The form
+// payload must therefore be able to carry it, or an ordinary edit deletes a value the user
+// was never shown.
+func TestUpdate_FieldsEditKeepsGeo(t *testing.T) {
+	svc, _ := setupContactWithGeo(t)
+
+	got, err := svc.Update(context.Background(), "u1", "c1", service.UpdateContactInput{
+		Fields: &service.ContactFields{
+			FirstName: "Janet",
+			LastName:  "Doe",
+			Geo:       "geo:52.5,13.4",
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, got.VCardData, "Janet", "the edit must be applied")
+	assert.Contains(t, got.VCardData, "GEO:geo:52.5,13.4", "GEO must survive a form edit")
+	assert.Equal(t, "geo:52.5,13.4", got.Geo)
+}
+
+// The `fields` payload is a full replacement of the managed set: an empty value clears the
+// property, exactly as an empty `note` deletes a note. Preserving GEO when it is absent
+// would make it the one managed property no form edit can clear.
+func TestUpdate_FieldsEditWithEmptyGeoClearsIt(t *testing.T) {
+	svc, _ := setupContactWithGeo(t)
+
+	got, err := svc.Update(context.Background(), "u1", "c1", service.UpdateContactInput{
+		Fields: &service.ContactFields{FirstName: "Janet", LastName: "Doe"},
+	})
+	require.NoError(t, err)
+
+	assert.NotContains(t, got.VCardData, "GEO")
+	assert.Empty(t, got.Geo)
+}
+
 func TestCreate_SetsAllFields(t *testing.T) {
 	svc, _ := newContactSvc()
 	ctx := context.Background()

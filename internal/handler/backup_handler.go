@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"path/filepath"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
@@ -122,6 +123,11 @@ func (h *BackupHandler) Download(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "backup not found"})
 	}
+	// Same shape as the export endpoints. The name is safe to interpolate because it is one
+	// this service wrote: isBackupFilename only checks the suffix, but GetPath then stats the
+	// file inside the user's own directory, so a name carrying a quote or a CR does not exist.
+	// That guarantee ends the moment the backup directory becomes writable by anything else.
+	c.Set("Content-Disposition", `attachment; filename="`+filepath.Base(path)+`"`)
 	return c.SendFile(path)
 }
 

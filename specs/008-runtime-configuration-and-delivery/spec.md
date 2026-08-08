@@ -611,15 +611,18 @@ silently ignored or unenforced is recorded under Known Divergences instead, not 
 - **FR-060**: A secret MUST NEVER be accepted as a command-line argument — argv is visible in the
   process list, `/proc/<pid>/cmdline`, shell history and container inspection. A password MUST be
   prompted twice without echo and the two entries compared, or read from standard input behind an
-  explicit `--stdin` (`cmd/server/cli.go:138-149`, `:213-257`, `cmd/server/cli_test.go:54-79`,
+  explicit `--stdin` (`cmd/server/cli.go:140-151`, `:240-284`, `cmd/server/cli_test.go:63-90`,
   `.github/workflows/ci.yml:215-219`).
 - **FR-061**: Flag parsing MUST accept flags written after positional arguments — `parseInterleaved`
   rather than `fs.Parse` — because the standard parser stops at the first positional and would
   otherwise ignore `--stdin` in the form the documentation itself uses
   (`cmd/server/cli.go:64-82`, `cmd/server/cli_test.go:80-102`).
 - **FR-062**: A subcommand MUST NOT run migrations, and MUST refuse to work on a database with no
-  schema, exiting `5` and telling the operator to start the server once
-  (`cmd/server/cli.go:108-136`).
+  schema, exiting `5` and telling the operator to start the server once. The refusal MUST come
+  before any prompt for a secret, so a missing schema does not cost the operator two password
+  entries. The shared helper also returns the configuration it loaded, so a subcommand reporting on
+  runtime behaviour quotes what this process read rather than a literal that can drift
+  (`cmd/server/cli.go:109-138`, `:167-177`, `cmd/server/cli_test.go:207`).
 - **FR-063**: `version` and `help` MUST work without a database and MUST report the version injected
   at build time (`cmd/server/cli.go:84-106`, `cmd/server/cli_test.go:40-53`).
 
@@ -1090,16 +1093,21 @@ Cross-domain couplings:
 
 **CLI dispatch** (`cmd/server/cli_test.go`)
 
-- `TestRunCLI_NoArgumentsFallsThroughToTheServer` (`:20`) — FR-056.
-- `TestRunCLI_FlagsFallThroughToTheServer` (`:26`) — FR-058.
-- `TestRunCLI_UnknownSubcommandIsAUsageError` (`:32`) — FR-057, FR-059, SC-016.
-- `TestSetPassword_RequiresAnEmail` (`:59`) — FR-057's usage path.
-- `TestRunCLI_VersionAndHelp` (`:40`) — FR-063.
+- `TestRunCLI_NoArgumentsFallsThroughToTheServer` (`:29`) — FR-056.
+- `TestRunCLI_FlagsFallThroughToTheServer` (`:35`) — FR-058.
+- `TestRunCLI_UnknownSubcommandIsAUsageError` (`:41`) — FR-057, FR-059, SC-016.
+- `TestSetPassword_RequiresAnEmail` (`:68`) — FR-057's usage path.
+- `TestRunCLI_VersionAndHelp` (`:49`) — FR-063.
 - `TestSetPassword_RefusesAPasswordArgument`,
   `TestSetPassword_NonTerminalWithoutStdinFlagIsRefused`, `TestSetPassword_EmptyStdinIsRefused`,
-  `TestSetPassword_WarningsAreSpelledOut` (`:54`, `:66`, `:72`, `:104`) — FR-060.
+  `TestSetPassword_WarningsAreSpelledOut` (`:63`, `:76`, `:84`, `:118`) — FR-060.
 - `TestParseInterleaved_AcceptsFlagsAfterPositionals`,
-  `TestParseInterleaved_AcceptsFlagsBeforePositionals` (`:80`, `:91`) — FR-061.
+  `TestParseInterleaved_AcceptsFlagsBeforePositionals` (`:94`, `:105`) — FR-061.
+- `TestSetPassword_RefusesAnUnmigratedDatabaseBeforePrompting` (`:207`) — FR-062. It asserts both
+  exit `5` and that nothing was read from stdin.
+- `TestSetPassword_EpilogueQuotesTheRunningConfiguration` (`:179`) and `TestHumanTTL` (`:129`) —
+  the "returns the configuration it loaded" half of FR-062; the requirement they serve is
+  **001 FR-050**.
 
 **Delivery** (`.github/workflows/ci.yml`, by job and step name)
 
@@ -1285,3 +1293,4 @@ tests that do not exist.
 |------|-----|--------|----------|
 | 2026-08-07 | v0.4.0-3-g23a167c | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0-3-g23a167c | Conformed to the house template: header block replaced (Kind `journey`, Status `shipped`, Constitution v1.0.0), `**Feature Branch**` and `**Input**` removed; Dependencies folded into References, Open Questions folded into Known Divergences; ownership list restated file by file with the frontend shell subpackages, `internal/repository/interfaces.go`, `internal/worker/jobs/deps.go` and the shared test/type files added, and `web/src/api/client.ts` moved to References. Withdrew FR-033 (credential rate-limit tiers → 001 FR-041/FR-042) and FR-035 (trusted-proxy keying → 001 FR-044) as labelled cross-references; narrowed FR-068 to the landing page, leaving `/setup` to 004 FR-033. Corrected the claim that the landing page was the only server-rendered page loading a CDN asset (`setup-guide.html:7` does too) in both Edge Cases and Assumptions. Moved every admission out of Edge Cases and Assumptions into Known Divergences and added the unenforced-requirement inventory. | — |
+| 2026-08-07 | unreleased | FR-062 extended: `openCLIDatabase` now returns the loaded `*config.Config` alongside the connection, and the unmigrated-schema refusal is required to happen before any password prompt (`set-password` opens the database first). Enforcer citations for `cmd/server/cli_test.go` re-anchored after the file grew a database fixture. | D3 |

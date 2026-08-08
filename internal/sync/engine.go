@@ -457,8 +457,12 @@ func (e *Engine) recordConflict(
 		return
 	}
 
-	var diffs []FieldConflict
-	if mergeResult, mergeErr := MergeVCards(prev.BaseVCard, localItem.VCardData, remoteItem.VCardData); mergeErr == nil {
+	// Empty, not nil: a nil slice marshals to the four bytes `null`, and the column is read by
+	// a browser that then calls .forEach on it. A conflict with no attributable field diffs is
+	// the ordinary manual-mode case — two sides editing different properties — so this is the
+	// common path, not an edge case.
+	diffs := []FieldConflict{}
+	if mergeResult, mergeErr := MergeVCards(prev.BaseVCard, localItem.VCardData, remoteItem.VCardData); mergeErr == nil && mergeResult.Conflicts != nil {
 		diffs = mergeResult.Conflicts
 	}
 	diffsJSON, _ := json.Marshal(diffs)

@@ -62,8 +62,11 @@ func ValidateProviderEndpoint(endpoint string, policy EndpointPolicy) error {
 	case "https":
 	case "http":
 		if !policy.AllowInsecure {
+			// Both spellings are named: configs/config.yaml is not in the container image,
+			// so for the documented compose deployment the YAML key alone is not actionable.
 			return fmt.Errorf("%w: http is refused — credentials would travel in clear text; "+
-				"set sync.allow_insecure_endpoints to permit it", ErrInvalidEndpoint)
+				"set sync.allow_insecure_endpoints (CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS=true) "+
+				"to permit it", ErrInvalidEndpoint)
 		}
 	default:
 		return fmt.Errorf("%w: scheme %q is not fetchable, only http and https are",

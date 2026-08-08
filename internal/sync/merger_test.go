@@ -164,6 +164,7 @@ func TestApplyResolution_DefaultsToLocal(t *testing.T) {
 }
 
 // TestApplyResolution_UIDAlwaysLocal verifies UID is taken from local even if resolution says remote.
+// The wildcard is present too: "take the whole remote card" must still not move the UID.
 func TestApplyResolution_UIDAlwaysLocal(t *testing.T) {
 	base := buildVCard("uid-base", "Alice", nil)
 	local := buildVCard("uid-local", "Alice", nil)
@@ -171,7 +172,67 @@ func TestApplyResolution_UIDAlwaysLocal(t *testing.T) {
 
 	resolved, err := chqsync.ApplyResolution(base, local, remote, map[string]string{
 		"UID": "remote", // should be ignored by ApplyResolution (UID is in skipFields)
+		"*":   "remote",
 	})
 	require.NoError(t, err)
 	assert.Contains(t, resolved, "uid-local")
+	assert.NotContains(t, resolved, "uid-remote")
+}
+
+// TestApplyResolution_WildcardRemoteTakesTheWholeRemoteCard pins the meaning of the "*" key
+// the conflict UI sends for "Apply remote (source wins)": every field the user did not name
+// individually resolves to remote, not to local.
+func TestApplyResolution_WildcardRemoteTakesTheWholeRemoteCard(t *testing.T) {
+	base := buildVCard("uid1", "Alice", map[string]string{"NOTE": "base note"})
+	local := buildVCard("uid1", "Alice Local", map[string]string{"NOTE": "local note"})
+	remote := buildVCard("uid1", "Alice Remote", map[string]string{"NOTE": "remote note"})
+
+	resolved, err := chqsync.ApplyResolution(base, local, remote, map[string]string{"*": "remote"})
+	require.NoError(t, err)
+	assert.Contains(t, resolved, "Alice Remote")
+	assert.Contains(t, resolved, "remote note")
+	assert.NotContains(t, resolved, "Alice Local")
+	assert.NotContains(t, resolved, "local note")
+}
+
+// TestApplyResolution_PerFieldChoiceBeatsTheWildcard verifies the wildcard is a fallback,
+// not an override: an explicit per-field key wins over it.
+func TestApplyResolution_PerFieldChoiceBeatsTheWildcard(t *testing.T) {
+	base := buildVCard("uid1", "Alice", map[string]string{"NOTE": "base note"})
+	local := buildVCard("uid1", "Alice Local", map[string]string{"NOTE": "local note"})
+	remote := buildVCard("uid1", "Alice Remote", map[string]string{"NOTE": "remote note"})
+
+	resolved, err := chqsync.ApplyResolution(base, local, remote, map[string]string{
+		"*":    "remote",
+		"NOTE": "local",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, resolved, "Alice Remote")
+	assert.Contains(t, resolved, "local note")
+	assert.NotContains(t, resolved, "remote note")
+}
+
+// TestApplyResolution_WildcardRemoteDropsALocalOnlyProperty states the destructive half of
+// "the remote version won": a property the remote does not carry is removed, not kept.
+func TestApplyResolution_WildcardRemoteDropsALocalOnlyProperty(t *testing.T) {
+	base := buildVCard("uid1", "Alice", nil)
+	local := buildVCard("uid1", "Alice Local", map[string]string{"TITLE": "Engineer"})
+	remote := buildVCard("uid1", "Alice Remote", nil)
+
+	resolved, err := chqsync.ApplyResolution(base, local, remote, map[string]string{"*": "remote"})
+	require.NoError(t, err)
+	assert.Contains(t, resolved, "Alice Remote")
+	assert.NotContains(t, resolved, "TITLE")
+}
+
+// TestApplyResolution_WildcardRemoteOnAnEmptyRemoteCardIsRefused guards the degenerate case:
+// parseCard accepts blank input as an empty card, so a wildcard "remote" against a conflict
+// with no remote payload would collapse the contact to UID+VERSION and save that.
+func TestApplyResolution_WildcardRemoteOnAnEmptyRemoteCardIsRefused(t *testing.T) {
+	base := buildVCard("uid1", "Alice", nil)
+	local := buildVCard("uid1", "Alice Local", map[string]string{"TITLE": "Engineer"})
+
+	_, err := chqsync.ApplyResolution(base, local, "   ", map[string]string{"*": "remote"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, chqsync.ErrRemoteCardEmpty)
 }

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/uptrace/bun"
 	"golang.org/x/term"
@@ -106,22 +107,23 @@ func runVersion(_ []string, _ io.Reader, stdout, _ io.Writer) int {
 }
 
 // openCLIDatabase loads configuration, connects, and refuses to proceed on an unmigrated
-// database.
+// database. The loaded configuration is returned as well: a subcommand that reports on
+// runtime behaviour must quote the settings this process actually read, not a literal.
 //
 // Migrations are deliberately not run here. The server applies them inside a transaction at
 // startup; a second process doing the same concurrently is a race with no upside, and on
 // SQLite it would contend for the single connection the server holds.
-func openCLIDatabase(stderr io.Writer) (*bun.DB, int) {
+func openCLIDatabase(stderr io.Writer) (*bun.DB, *config.Config, int) {
 	cfg, err := config.LoadForCLI()
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to load config: %v\n", err)
-		return nil, exitFailure
+		return nil, nil, exitFailure
 	}
 
 	db, err := repository.NewDB(cfg.Database)
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to connect to the database: %v\n", err)
-		return nil, exitNoDatabase
+		return nil, nil, exitNoDatabase
 	}
 
 	var applied int
@@ -129,10 +131,10 @@ func openCLIDatabase(stderr io.Writer) (*bun.DB, int) {
 	if err := row.Scan(&applied); err != nil || applied == 0 {
 		_ = db.Close()
 		fmt.Fprintln(stderr, "the database has no schema yet — start the server once so it can run migrations, then retry")
-		return nil, exitNotMigrated
+		return nil, nil, exitNotMigrated
 	}
 
-	return db, exitOK
+	return db, cfg, exitOK
 }
 
 func runSetPassword(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -162,16 +164,18 @@ command-line argument: it would be visible in ps, the shell history and docker i
 		return exitUsage
 	}
 
-	password, code := readNewPassword(*fromStdin, stdin, stdout, stderr)
-	if code != exitOK {
-		return code
-	}
-
-	db, code := openCLIDatabase(stderr)
+	// The database is opened first on purpose: an operator whose database has no schema would
+	// otherwise type a password twice and only then be told the command cannot proceed.
+	db, cfg, code := openCLIDatabase(stderr)
 	if code != exitOK {
 		return code
 	}
 	defer func() { _ = db.Close() }()
+
+	password, code := readNewPassword(*fromStdin, stdin, stdout, stderr)
+	if code != exitOK {
+		return code
+	}
 
 	userSvc := service.NewUserService(repository.NewBunUserRepository(db))
 
@@ -191,24 +195,47 @@ command-line argument: it would be visible in ps, the shell history and docker i
 	// One audit line, carrying neither the password nor the hash.
 	fmt.Fprintf(stderr, "password updated for %s\n", email)
 
-	fmt.Fprint(stdout, setPasswordEpilogue)
+	fmt.Fprint(stdout, setPasswordEpilogue(cfg.Auth.TokenTTL, cfg.Auth.RefreshTTL))
 	return exitOK
 }
 
 // setPasswordEpilogue states the two things an operator would otherwise assume wrongly. Both
 // mean "the old credential still works for a while", and neither is visible from the outside.
-const setPasswordEpilogue = `
+//
+// The lifetimes are quoted from the configuration this process loaded rather than written as
+// literals. Hardcoded numbers went stale once already: the text still said 24h/720h after
+// v0.4.0 moved the defaults to 1h/168h, and being wrong by 24x about how long a compromised
+// session survives is this message failing at the only job it has.
+func setPasswordEpilogue(tokenTTL, refreshTTL time.Duration) string {
+	return fmt.Sprintf(`
 Password updated.
 
 Two things this does NOT do:
   * Existing sessions stay signed in. Access tokens remain valid for their full lifetime
-    (default 24h) and refresh tokens for theirs (default 720h). To cut them off, rotate
+    (%s) and refresh tokens for theirs (%s). To cut them off, rotate
     CHQ_AUTH_JWT_SECRET and restart — that signs everyone out.
   * This command runs in its own process, so a running server keeps its cached CardDAV
     authentication verdicts: a client mid-session may keep working for up to 5 minutes.
     Restart the server to drop that cache at once. (A password changed through the web UI
     takes effect for CardDAV immediately.)
-`
+
+Those lifetimes are the ones THIS process read, from its own environment and working
+directory. A server started with a different environment is using different ones.
+`, humanTTL(tokenTTL), humanTTL(refreshTTL))
+}
+
+// humanTTL prints a duration the way an operator writes it in configuration: "1h", not
+// "1h0m0s". Only whole trailing units are dropped, so 90m still reads "1h30m".
+func humanTTL(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
+}
 
 // readNewPassword obtains the new password without ever putting it in argv.
 func readNewPassword(fromStdin bool, stdin io.Reader, stdout, stderr io.Writer) (string, int) {
