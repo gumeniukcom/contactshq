@@ -199,8 +199,6 @@ func Register(app *fiber.App, svc Services) {
 	// Sync
 	syncGroup := protected.Group("/sync")
 	syncGroup.Get("/providers", syncHandler.ListProviders)
-	syncGroup.Post("/google/connect", syncHandler.GoogleConnect)
-	syncGroup.Post("/google/trigger", syncHandler.GoogleTrigger)
 	syncGroup.Post("/carddav/connect", syncHandler.CardDAVConnect)
 	syncGroup.Post("/carddav/trigger", syncHandler.CardDAVTrigger)
 	syncGroup.Delete("/providers/:id", syncHandler.DisconnectProvider)

@@ -4,13 +4,12 @@ Kind: meta
 Status: partial
 Constitution: v1.0.0
 
-Written against the tree at commit `23a167c` (`v0.4.0` is the last tag). Unlike the eight product
-specs beside it, this one is **partly forward-looking**: the scaffold, the specs, the constitution
-and the ownership gate exist and are enforced; the documentation-hygiene half — `specs/README.md`,
-the `CLAUDE.md` pointer, `make specs-use`, and the three file splits — does not exist at all.
-`## Status` states exactly which is which, and `## Known Divergences` states what the missing half
-costs. Every requirement below either cites a file that can be read today or is marked as not
-built. This is the only spec in the tree that will carry a `tasks.md`.
+Written against the tree at `23a167c` (`v0.4.0`) and amended as the adoption landed. Unlike the
+eight product specs beside it, this one is **partly forward-looking**: the scaffold, the specs, the
+constitution, the ownership gate and `specs/README.md` exist; `make specs-use` and the three file
+splits do not. `## Status` states exactly which is which, and `## Known Divergences` states what the
+missing part costs. Every requirement below either cites a file that can be read today or is marked
+as not built. This is the only spec in the tree that will carry a `tasks.md`.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -196,7 +195,7 @@ resolver prefers it over the upstream copy.
 
 - **FR-001**: The repository MUST carry a `specs/` directory whose purpose, artefact
   vocabulary and gates are stated in `specs/README.md`, so a newcomer can understand the tree
-  without reading the tooling. (`specs/README.md` [not built])
+  without reading the tooling. (`specs/README.md`)
 
 - **FR-002**: `specs/README.md` MUST carry a document-ownership table assigning exactly one
   primary home to each kind of statement. The constitution already carries the authoritative
@@ -215,19 +214,19 @@ resolver prefers it over the upstream copy.
 - **FR-003**: Where the same fact appears in two documents, the table MUST name which copy is
   authoritative. Satisfied in the constitution ("When these conflict, the code wins, and
   whichever document was wrong gets fixed in the same change that discovered it");
-  `specs/README.md` MUST NOT contradict it. (`specs/README.md` [not built])
+  `specs/README.md` MUST NOT contradict it. (`specs/README.md`)
 
 **Numbering and identity**
 
 - **FR-004**: A new spec directory MUST take the highest existing number plus one.
-  (`specs/README.md` [not built])
+  (`specs/README.md`)
 - **FR-005**: A spec's number MUST be permanent once merged; it is the spec's identifier.
-  (`specs/README.md` [not built])
+  (`specs/README.md`)
 - **FR-006**: When two branches claim the same number, the branch being rebased MUST be
   renumbered. This mirrors the migration-numbering rule already enforced by convention
   (`CLAUDE.md`, "Numbers are assigned at merge time, not planning time"; 25 migration pairs
   verified in `migrations/`, and the same rule restated as constitution Principle I).
-  (`specs/README.md` [not built])
+  (`specs/README.md`)
 
 **Ownership**
 
@@ -251,11 +250,9 @@ resolver prefers it over the upstream copy.
   `specs/UNCLAIMED.md` with a written reason. (`internal/speckit/ownership_test.go`:
   `TestEveryTrackedPathIsClaimed`; `specs/UNCLAIMED.md`)
 - **FR-011**: The ownership check MUST be runnable locally through a `make` target and MUST
-  run in CI. `Makefile` has no `specs-*` target (verified: `grep -n specs Makefile` returns
-  nothing; targets are `build`, `build-frontend`, `run`, `dev-frontend`, `test`,
-  `test-coverage`, `clean`, `tidy`, `lint`, `docker*`, `setup-hooks`), and
-  `.github/workflows/ci.yml` has no specs step (verified: `grep -rn specs .github/` returns
-  nothing). (`Makefile`, `.github/workflows/ci.yml` [not built])
+  run in CI. `make specs` runs it alone (`Makefile`); CI runs the same checks inside
+  `go test ./... -count=1 -race` (`.github/workflows/ci.yml`). No separate CI step was added —
+  it would run the package twice for the same signal.
 
 **Status lifecycle**
 
@@ -263,7 +260,7 @@ resolver prefers it over the upstream copy.
   waive content assertions, so an unfinished spec never fails the build. `partial` MUST state
   in the spec body what is and is not built. The template already encodes this
   (`.specify/templates/overrides/spec-template.md:4,25-26,88-90`).
-  (`specs/README.md`, `internal/speckit` [both not built])
+  (`specs/README.md`; `internal/speckit/shape_test.go`: `TestSpecHeaderIsWellFormed`)
 - **FR-013**: Ownership assertions (FR-008, FR-009, FR-010) MUST apply regardless of status —
   a draft spec still claims paths, or the map has holes exactly where work is happening.
   (`internal/speckit/ownership_test.go` — the ownership tests read no Status field)
@@ -321,8 +318,9 @@ resolver prefers it over the upstream copy.
   "Spec-driven development artefacts: documentation, never inputs to the build", beside the
   existing `.git`, `.github`, `.gitignore`, `.claude`, `.serena` block. [present, uncommitted]
 - **FR-023**: `CLAUDE.md` MUST point an agent at `specs/README.md` before it edits code, or
-  the tree is invisible to the readers it was written for. Verified still unmet:
-  `grep -n 'specs/\|speckit\|\.specify' CLAUDE.md` returns nothing. (`CLAUDE.md` [not built])
+  the tree is invisible to the readers it was written for. The pointer sits directly under the
+  one-line description, above every other section, and states what `CLAUDE.md` is *not* — the
+  traps of editing, never a behavioural specification. (`CLAUDE.md`)
 
 **Coverage**
 
@@ -419,29 +417,38 @@ a few hundred files it is not a number worth committing to.
 
 ## Status
 
-`partial`, against an unreleased working tree on top of `v0.4.0` (`23a167c`).
+`partial`, shipped in `d31c2c9` (scaffold, constitution, nine specs), `79bc642` (the ownership
+gate) and `356df1e` (the gate's audit surface), on top of `v0.4.0`. The ownership half of this
+spec is built and enforced; the documentation half is not.
 
-**Present in the working tree, not yet committed** (`git status` reports `.claude/`,
-`.specify/` and `specs/` untracked, `.gitignore` and `.dockerignore` modified):
+**Built and enforced:**
 
-- `.specify/` — `memory/constitution.md`, `templates/`, `templates/overrides/spec-template.md`,
-  `scripts/bash/`, `init-options.json`, `integration.json` (FR-007, FR-014, FR-017, FR-025)
+- `.specify/` — `memory/constitution.md` (v1.0.0), `templates/`,
+  `templates/overrides/spec-template.md`, `scripts/bash/`, `init-options.json`,
+  `integration.json` (FR-007, FR-014, FR-017, FR-025)
 - `.claude/skills/speckit-*/SKILL.md` — all ten (FR-015)
 - `specs/000-speckit-adoption/spec.md` and the eight product specs `001`–`008` (FR-024)
 - The `.gitignore` allowlist (FR-021) and the `.dockerignore` exclusions (FR-022)
-
-**Not built at all:**
-
-- `specs/README.md` (FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-012)
 - `specs/UNCLAIMED.md` (FR-010)
-- `internal/speckit/` — the ownership checker (FR-008, FR-009, FR-010, FR-011, FR-013)
-- `make specs-*` targets, including `specs-use` (FR-011, FR-016)
+- `internal/speckit/` — the ownership gate (FR-008, FR-009, FR-010, FR-013), plus house-shape,
+  English-only and cited-enforcer checks the original requirements did not ask for
+- `make specs`, and CI running the same checks inside `go test ./...` (FR-011)
+- `specs/README.md` (FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-012)
 - The `CLAUDE.md` pointer at `specs/README.md` (FR-023)
-- The three file splits (FR-018, FR-019, FR-020)
+
+**Not built:**
+
+- `make specs-use` (FR-016) — nothing selects the current spec, so a `/speckit-*` command acts
+  on whatever `.specify/feature.json` was left pointing at
+- The three file splits (FR-018, FR-019, FR-020). These are an improvement, not a debt: each
+  file is currently owned whole by one spec, so the ownership rule is satisfied without them
 - `specs/000-speckit-adoption/tasks.md`
 
-The first ownership run is therefore expected to fail loudly. That failure is the acceptance
-signal for this spec, not a regression.
+**What the gate does not check.** It reads `## Code Paths`, the section set, the header and the
+cited test names. It does not and cannot check that this section is true — the failure this spec
+already suffered, when it went on claiming `UNCLAIMED.md` and `internal/speckit` were unbuilt for
+two days after they shipped. `## Status` is maintained by hand and should be read with that in
+mind.
 
 ## Code Paths
 

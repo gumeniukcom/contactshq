@@ -1170,10 +1170,6 @@ therefore permanent, not transitional — nothing rewrites those rows.
   warns about it. Two CardDAV servers synced by one account will corrupt each other's state.
   `migrations/011_drop_provider_unique.up.sql` removed the constraint that used to make the
   configuration impossible, and nothing replaced it.
-- **`POST /sync/google/connect` and `POST /sync/google/trigger` are registered routes that
-  return 501.** They are unconditional stubs
-  (`internal/handler/sync_handler.go` `GoogleConnect`, `GoogleTrigger`; registered at
-  `internal/handler/handler.go`). Google works only through `/auth/google/*` plus a pipeline.
 - **Endpoint validation does not judge the transport, only the scheme.** `createProvider` now
   validates the endpoint it will actually build the provider from, after a `credential_id` has
   been resolved into it (`internal/sync/pipeline.go` `createProvider`), so the grandfathered
@@ -1292,6 +1288,7 @@ therefore permanent, not transitional — nothing rewrites those rows.
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-10 | unreleased | Removed `POST /sync/google/connect` and `POST /sync/google/trigger`, two registered routes that unconditionally returned 501 and that nothing called — the frontend connects Google through `/auth/google/*`. A route that advertises a capability it does not have is worse than an absent one, so the divergence recording them is deleted rather than reworded. | — |
 | 2026-08-07 | unreleased | **D2a** — `recordConflict` marshalled a nil diff slice as `null`, blanking the conflict detail page and, through one row, the conflicts list. Engine now emits `[]`; `parseFieldDiffs` guards both views for rows already stored as `null`. Found by the design review of D2, not by the original defect list: D2's "apply remote" button lives on the page this bug prevented from rendering. | — |
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Rewritten to the house template: header replaced with `Kind`/`Status`/`Constitution` (`Feature Branch`, `Created`, `Source` and the `How to read this` blockquote removed or moved to prose); `Dependencies` and `Out of Scope` folded into Assumptions; `Status`, `Code Paths`, `References`, `Enforced By`, `Known Divergences` and `Amendments` placed in template order. Ownership narrowed from `internal/sync/` as a package to an explicit file list, and the partial `cmd/server/startup.go` claim dropped. Every admission moved out of Edge Cases into Known Divergences; Edge Cases restated as genuine boundary conditions. Test names and `.go` paths removed from Success Criteria and reconciled into Enforced By, with twenty-plus unenforced requirements named as gaps. FR-019 and FR-020 replaced by cross-references to `008-runtime-configuration-and-delivery` FR-041 and FR-042. The `migrations/021_change_journal` open question closed: not claimed here, referenced as `004-carddav-service`'s. Status `Implemented (retrospective)` → `shipped`. | — |

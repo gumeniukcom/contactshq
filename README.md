@@ -369,8 +369,6 @@ GET    /api/v1/contacts/merge-log           (with a snapshot of the discarded ca
 
 GET    /api/v1/sync/providers
 DELETE /api/v1/sync/providers/:id
-POST   /api/v1/sync/google/connect
-POST   /api/v1/sync/google/trigger
 POST   /api/v1/sync/carddav/connect
 POST   /api/v1/sync/carddav/trigger
 GET    /api/v1/sync/status

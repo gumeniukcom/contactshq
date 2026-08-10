@@ -80,18 +80,6 @@ func (h *SyncHandler) ListProviders(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"providers": providers})
 }
 
-func (h *SyncHandler) GoogleConnect(c *fiber.Ctx) error {
-	return c.Status(fiber.StatusNotImplemented).JSON(fiber.Map{
-		"error": "Google OAuth2 integration not yet configured",
-	})
-}
-
-func (h *SyncHandler) GoogleTrigger(c *fiber.Ctx) error {
-	return c.Status(fiber.StatusNotImplemented).JSON(fiber.Map{
-		"error": "Google sync not yet configured",
-	})
-}
-
 type carddavConnectRequest struct {
 	URL           string `json:"url"`
 	Username      string `json:"username"`

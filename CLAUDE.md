@@ -2,6 +2,13 @@
 
 Go API service for centralized contact management with CardDAV server, sync engine, and pipelines.
 
+**Before changing behaviour, find the spec that owns the file.** `specs/` states what each
+capability is supposed to do; `## Code Paths` in each spec is a path→spec lookup, and exactly one
+spec owns any given path. Start at [specs/README.md](specs/README.md), and read
+[.specify/memory/constitution.md](.specify/memory/constitution.md) for the rules that outrank
+convenience. `make specs` fails the build when the tree stops being true. This file stays what it
+has always been: the traps an agent hits while editing, not a behavioural specification.
+
 ## Build & Run
 
 ```bash
@@ -60,7 +67,7 @@ Every key needs an explicit entry in `envBoundKeys` (`internal/config/config.go`
 
 ## API
 
-This is a partial map, not a reference — `internal/handler/handler.go` registers 80 routes
+This is a partial map, not a reference — `internal/handler/handler.go` registers 78 routes
 (`grep -cE '\.(Get|Post|Put|Delete|Patch)\("' internal/handler/handler.go`),
 plus the `/dav` mount and the web routes in `internal/web/handler.go` and `cmd/server/main.go`.
 **Read `handler.go` before assuming a route's shape.** There is no generated API spec.
@@ -79,8 +86,10 @@ All API endpoints live under `/api/v1/`:
 - **Backup**: `POST /backup/create`, `GET /backup/list`, `GET /backup/runs`, `GET /backup/status`,
   `GET/PUT /backup/settings`,
   `GET /backup/download/:id`, `DELETE /backup/:id`, `POST /backup/restore/:id` (`?mode=`)
-- **Sync**: `GET /sync/providers`, `/status`, `/history`; `POST /sync/{google,carddav}/connect`
-  and `/trigger`; `DELETE /sync/providers/:id`
+- **Sync**: `GET /sync/providers`, `/status`, `/history`; `POST /sync/carddav/connect`
+  and `/sync/carddav/trigger`; `DELETE /sync/providers/:id`. Google is connected through
+  `/auth/google/*`, not here — the `/sync/google/*` pair were 501 stubs nothing called and
+  are gone
 - **Sync conflicts**: `GET /sync/conflicts`, `/conflicts/count`, `/conflicts/:id`,
   `POST /sync/conflicts/:id/resolve`, `/conflicts/:id/dismiss`
 - **Credentials**: `GET/POST /credentials`, `GET/PUT/DELETE /credentials/:id`
