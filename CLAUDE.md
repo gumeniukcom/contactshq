@@ -44,13 +44,24 @@ Config via `configs/config.yaml` or env vars with `CHQ_` prefix:
 - `CHQ_SERVER_PORT` = HTTP port (default 8080)
 - `CHQ_AUTH_ALLOW_REGISTRATION` = open public sign-up (default `false`)
 - `CHQ_BACKUP_MAX_RESTORE_BYTES` = decompressed restore cap (default 128 MiB)
+- `CHQ_SERVER_MAX_BODY_BYTES` = 32 MiB; the only limit that bounds memory (see body limits below)
+- `CHQ_SERVER_MAX_IMPORT_BYTES` = 32 MiB; validation refuses a value above max_body_bytes
+- `CHQ_SERVER_READ_TIMEOUT` / `CHQ_SERVER_IDLE_TIMEOUT` = 30s / 120s. There is deliberately **no**
+  write timeout and config validation refuses a non-zero one
+- `CHQ_CARDDAV_MAX_RESOURCE_BYTES` = 1 MiB, enforced on `/dav` PUT only
+- `CHQ_SYNC_ALLOW_INSECURE_ENDPOINTS` = permit `http://` provider endpoints (default `false`)
+- `CHQ_SYNC_RUNS_RETENTION_DAYS` / `CHQ_MERGE_LOG_RETENTION_DAYS` = 90 / 30
+- `CHQ_AUTH_TOKEN_TTL` / `CHQ_AUTH_REFRESH_TTL` = 1h / 168h since v0.4.0 (were 24h / 720h). There
+  is no token denylist, so these lifetimes **are** the revocation window; rotating the JWT secret
+  is the only way to cut every session at once
 
 Every key needs an explicit entry in `envBoundKeys` (`internal/config/config.go`) or its
 `CHQ_` variable is silently ignored — `TestEnvBinding_NoDefaultedKeyIsLeftUnbound` enforces this.
 
 ## API
 
-This is a partial map, not a reference — `internal/handler/handler.go` registers 74 routes,
+This is a partial map, not a reference — `internal/handler/handler.go` registers 80 routes
+(`grep -cE '\.(Get|Post|Put|Delete|Patch)\("' internal/handler/handler.go`),
 plus the `/dav` mount and the web routes in `internal/web/handler.go` and `cmd/server/main.go`.
 **Read `handler.go` before assuming a route's shape.** There is no generated API spec.
 
@@ -111,6 +122,15 @@ contactshq version | help
   written after the email would be silently ignored.
 - Subcommands do **not** run migrations — they refuse to work on an empty schema (exit 5).
   The server owns migration, and a second process racing it has no upside.
+  That check runs **before** the password prompt: `set-password` used to ask twice and only then
+  exit 5. One consequence to expect — against an unmigrated database a run that would previously
+  have reported a usage error (exit 2, a missing `--stdin` say) now reports 5, because the
+  database is reached first.
+- `set-password`'s closing message quotes `auth.token_ttl` and `auth.refresh_ttl` **from the
+  config the command itself loaded**, not a hardcoded number — the previous text still said
+  24h/720h after v0.4.0 changed them, and telling an operator how long the old session outlives
+  the reset is that message's only job. A subcommand cannot see the environment of a server it is
+  not running in, so it must be run where the server's config is (`docker compose exec`).
 
 ### Bulk data repairs are commands, never migrations
 
@@ -215,6 +235,30 @@ left alone because nothing here touched the remote side.
   own). Incremental providers implement `IncrementalProvider` (delta + cursor);
   conditional writers implement `ConditionalWriter` (If-Match / ETag). The engine falls
   back to a full listing when neither is available.
+- **A slice that reaches the browser must be `[]`, never nil.** `json.Marshal` writes a nil slice
+  as the four bytes `null`, and `JSON.parse("null")` returns null **without throwing** — so a
+  `try`/`catch` on the client does not catch it and the next `.forEach` dies. This blanked both
+  sync-conflict screens for the *ordinary* manual conflict (two sides editing different
+  properties, hence no field diffs). `recordConflict` now starts from `[]FieldConflict{}`, and
+  `parseFieldDiffs` (`web/src/utils/sync-conflicts.ts`) coerces a non-array to `[]` — that guard
+  is permanent, because nothing rewrites rows already stored as `null`.
+- **`carddav.max_resource_bytes` is enforced in `Backend.PutAddressObject`**, after go-webdav has
+  already decoded the body, so it is POLICY not protection (see the body-limits rule above) — it
+  keeps an oversized card out of the database and gives the device a specific refusal. It binds
+  the `/dav` write path only: the API, imports and inbound sync can still store a larger card, and
+  `GET` still serves it, so an oversized contact becomes read-only *from devices*. Note `/dav` does
+  not pass through `newErrorHandler` — `internal/server.go` echoes the error text — so the usual
+  "never return an internal error's text" rule does not apply there and messages must be written
+  with that in mind.
+- **Duplicate detection reads child tables through `ListDedupValues`**, two narrow
+  `(contact_id, value)` projections — never a relation load and never a join. The detector was
+  rewritten for scale and the numbers are load-bearing: 10k contacts run at ~11 ms / 7.3 MB
+  (18.8 ms / 16.8 MB with secondary values) against 39 s / 13.6 GB before. Neither benchmark runs
+  in CI and both use an in-memory mock, so the query cost is argued from shape, not measured.
+- **`fields` is a full replacement of the properties it covers.** A `PUT` whose `fields` object
+  omits `geo` clears `GEO`, exactly as omitting `note` clears the note. The web form has no GEO
+  input and therefore passes the stored value through untouched rather than submitting an empty
+  one; any new caller that builds `fields` from a partial form owes the same care.
 
 ## Docker
 

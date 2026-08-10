@@ -14,7 +14,7 @@ been advertising, which can make an oversized contact read-only from every devic
 - **Sync pipelines** — move contacts between external providers (Fastmail, iCloud, Nextcloud, Google) and your address book on a schedule or on demand; each step is an import, an export, or a two-way sync ([how it works](docs/sync.md))
 - **Incremental sync** — providers that support it (Google via a sync token, CardDAV via RFC 6578) send only what changed since the last run; exports write conditionally so a concurrent edit becomes a conflict rather than being overwritten
 - **Three-way merge** — when a contact is modified both locally and on a remote source, the engine merges changes field-by-field automatically; unresolvable conflicts are queued for manual review
-- **Conflict resolution UI** — inspect field-level diffs between base/local/remote versions and resolve each field individually
+- **Conflict resolution UI** — inspect field-level diffs between base/local/remote versions and resolve each field individually; when a conflict has no diff attributable to a single property, whole-card actions are offered instead. "Apply remote" replaces the contact outright, discarding anything that exists only locally, so it asks first and there is no undo in the app
 - **Duplicate detection** — pairs are found by a shared email address or a normalised phone number, counting *every* address and number a contact holds rather than only its first, and each pair says which one it was ("Same email: a@b.c") rather than showing a percentage. A value shared by more than 500 contacts is treated as saying nothing about identity and its whole group is skipped, with a log warning and nothing in the UI
 - **Contact merge** — resolve the result value by value, so the work address from one record and the home address from the other is expressible; the merge is one transaction that transfers sync state, tombstones the discarded card, and keeps a 30-day history you can undo from by hand
 - **Import / Export** — import vCard (.vcf) and CSV files; export to vCard, CSV, or JSON
@@ -300,6 +300,13 @@ ContactsHQ includes a built-in CardDAV server. Connect your iPhone, iPad, Mac, o
 - In the app, go to **Settings → Connect Devices** for one-tap iOS profile download
 - Use **App Passwords** (Settings → App Passwords) instead of your main password for CardDAV clients
 - HTTPS is required for mobile clients — see [reverse proxy examples](docs/reverse-proxy.md)
+
+> **A card a device uploads must fit `CHQ_CARDDAV_MAX_RESOURCE_BYTES`** (1 MiB by default) or the
+> `PUT` is refused with `413`. The limit binds the CardDAV write path only: a bigger contact can
+> still arrive through the API, an import or an inbound sync, and it will still sync *down* to the
+> phone — but the phone can then never save an edit to it, and most CardDAV clients retry silently
+> rather than say so. An embedded photo is the usual way a contact gets that large. If you have
+> such contacts, raise the limit rather than leaving them read-only on every device.
 
 ## API
 
