@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 uses [Semantic Versioning](https://semver.org/). While the major version is `0`, breaking
 changes may appear in a minor release.
 
+## [Unreleased]
+
+### Fixed
+
+- **Exporting or backing up an imported address book lost every contact but the first.**
+  `POST /import/vcard` and a backup restore stored each card with its trailing CRLF stripped, and
+  export and backup then wrote the stored cards one after another with nothing between them —
+  producing `END:VCARDBEGIN:VCARD` on a single line. Every vCard splitter, this project's
+  included, looks for a line *beginning* with `BEGIN:VCARD`, so the rest of the file was
+  discarded. Measured on a three-contact import: the exported file re-imported as **0 contacts**,
+  and a `replace` restore of a backup deleted all three and inserted one.
+
+  Contacts created through the web form, CardDAV or a merge were always written correctly, which
+  is why every existing test passed. If your address book came from an import, **an export or
+  backup taken before this release is not a complete copy — take a fresh one.** No data
+  migration is needed: the fix is applied when the file is written, so cards already stored
+  without a terminator now export correctly.
+
+- **A clean checkout did not compile.** `internal/web/static/spa/.gitkeep` was deleted in
+  `a0ab02f`; `go:embed all:static/spa` requires the directory to exist. CI stayed green because
+  both Go jobs recreate the file before building.
+
 ## [0.5.0] — 2026-08-08
 
 ### ⚠️ Breaking

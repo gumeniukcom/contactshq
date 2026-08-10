@@ -729,6 +729,18 @@ rate limiter (008); replication to a remote provider, which is not a backup (006
 
 ## Known Divergences
 
+**Import and restore used to strip the card terminator, and export glued the cards together.**
+`strings.TrimSpace` on each card before storing removed the trailing CRLF, so concatenating
+stored cards produced `END:VCARDBEGIN:VCARD` on one physical line — and `SplitVCards`, which
+tests for a line *starting* with `BEGIN:VCARD`, kept only the first card. An address book
+populated by import therefore exported to a file that re-imported as **0 of 3** contacts, and a
+`replace` restore of such a backup deleted everything and inserted one card. Cards written by
+`EncodeCard` were always terminated correctly, which is why every existing fixture passed and no
+test caught it. `vcard.Terminated` is now applied on both write paths (export, backup) and both
+store paths (import, restore); applying it on write repairs databases that already hold trimmed
+cards, with no data migration.
+
+
 Where shipped behaviour differs from stated intent, or where a requirement above has no test
 behind it. Nothing here is presented as a requirement that is met.
 
@@ -838,6 +850,7 @@ These are review-only. Naming them is the point of this section; each is a gap, 
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-10 | unreleased | **D-term** — recorded the terminator loss on import/restore and the unseparated concatenation on export/backup, which silently reduced a multi-card address book to one contact on any round trip. Fixed at all four sites via `vcard.Terminated`; regression covered by `TestTerminated_ConcatenatedCardsStillSplit`. Found by the divergence triage, admitted by no spec. | — |
 | 2026-08-07 | v0.4.0 | Initial retrospective spec, reconstructed at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Conformed to the house template: house header replacing `Feature Branch`/`Input`; ownership recorded in `Code Paths` and `References`; `Enforced By` added with verified test names; admissions moved out of Edge Cases and Assumptions into `Known Divergences`, including the requirements that have no enforcer; SC-002 restated as FR-049 states it rather than as an absolute; SC-009 corrected to agree with FR-013; test and file citations removed from Success Criteria and added to the user stories. | — |
 | 2026-08-07 | unreleased | D4: `GET /backup/download/:id` now sets an `attachment` content disposition naming the file (FR-057 added, enforced by `TestBackupDownload_SetsAnAttachmentFilename`); the matching Known Divergence is replaced by the narrower one that the response's content type is still inferred by `SendFile`. The Backup screen's download button now reports a failed request instead of doing nothing. | — |

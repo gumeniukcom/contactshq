@@ -273,7 +273,9 @@ func (s *BackupService) writeBackupFile(path string, contacts []*domain.Contact,
 	}
 
 	for _, c := range contacts {
-		if _, werr := io.WriteString(w, c.VCardData); werr != nil {
+		// See ExportVCardByIDs: a card stored without its trailing CRLF would be glued to the
+		// next one, and the restore that reads this file back would keep only the first.
+		if _, werr := io.WriteString(w, vcardpkg.Terminated(c.VCardData)); werr != nil {
 			if gzw != nil {
 				_ = gzw.Close()
 			}
@@ -413,7 +415,7 @@ func (s *BackupService) Restore(ctx context.Context, userID, backupID, mode stri
 	prepared := make([]preparedContact, 0)
 
 	for _, card := range vcardpkg.SplitVCards(data) {
-		card = strings.TrimSpace(card)
+		card = vcardpkg.Terminated(card)
 		if card == "" {
 			continue
 		}

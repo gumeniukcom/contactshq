@@ -420,6 +420,8 @@ Owned by this spec:
 - `internal/vcard/builder.go`
 - `internal/vcard/encoder.go`
 - `internal/vcard/encoder_test.go`
+- `internal/vcard/terminate.go`
+- `internal/vcard/terminate_test.go`
 - `internal/vcard/split.go`
 - `internal/vcard/split_long_test.go`
 - `internal/vcard/domain_helper.go`
@@ -516,6 +518,18 @@ SC-008 (`:286-288`).
 
 ## Known Divergences
 
+**Import and restore used to strip the card terminator, and export glued the cards together.**
+`strings.TrimSpace` on each card before storing removed the trailing CRLF, so concatenating
+stored cards produced `END:VCARDBEGIN:VCARD` on one physical line — and `SplitVCards`, which
+tests for a line *starting* with `BEGIN:VCARD`, kept only the first card. An address book
+populated by import therefore exported to a file that re-imported as **0 of 3** contacts, and a
+`replace` restore of such a backup deleted everything and inserted one card. Cards written by
+`EncodeCard` were always terminated correctly, which is why every existing fixture passed and no
+test caught it. `vcard.Terminated` is now applied on both write paths (export, backup) and both
+store paths (import, restore); applying it on write repairs databases that already hold trimmed
+cards, with no data migration.
+
+
 1. **A `;` inside a single-valued TEXT property is not escaped**, although RFC 6350 §3.4 requires
    it. `go-vcard`'s decoder unescapes only `\\`, `\n` and `\,`; emitting `NOTE:a\; b` would make
    this application read its own note back as the literal `a\; b`, and undoing it after decoding is
@@ -593,6 +607,7 @@ SC-008 (`:286-288`).
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-10 | unreleased | **D-term** — recorded the terminator loss on import/restore and the unseparated concatenation on export/backup, which silently reduced a multi-card address book to one contact on any round trip. Fixed at all four sites via `vcard.Terminated`; regression covered by `TestTerminated_ConcatenatedCardsStillSplit`. Found by the divergence triage, admitted by no spec. | — |
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Conformed to the house template. Withdrew FR-028, FR-029 and FR-030 to spec 007 and FR-041 to spec 008 under constitution Principle VII; numbers retired, not reused. Moved eight admissions out of Edge Cases into Known Divergences and added four more (unenforced FR-010, untested FR-020/FR-021, indirectly enforced FR-005/FR-009, untested splitter discard). | — |
 | 2026-08-07 | unreleased | Citations only; no requirement changed. Three line references into files this spec does not own were re-anchored after D1 and D3 moved them: the `sha256`/`hex` copy of the ETag formula in `internal/carddav/backend.go` (`:274` → `:287-288`, moved by the 413 check), the `cardToString` re-encode on the same PUT path (`:273` → `:274`), and `openCLIDatabase` in `cmd/server/cli.go` (`:108-136` → `:109-138`, which now also returns the loaded config). Specs 001, 004 and 008 were re-anchored by those changes; this one was missed. | D1, D3 |

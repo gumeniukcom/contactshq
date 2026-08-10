@@ -9,6 +9,7 @@ import (
 
 	"github.com/gumeniukcom/contactshq/internal/domain"
 	"github.com/gumeniukcom/contactshq/internal/repository"
+	vcardpkg "github.com/gumeniukcom/contactshq/internal/vcard"
 )
 
 type ExporterService struct {
@@ -54,7 +55,10 @@ func (s *ExporterService) ExportVCardByIDs(ctx context.Context, userID string, i
 
 	var buf bytes.Buffer
 	for _, c := range contacts {
-		buf.WriteString(c.VCardData)
+		// Terminated, not raw: a card stored by import or restore lost its trailing CRLF, and
+		// concatenating those glues END:VCARD to the next BEGIN:VCARD on one line, which every
+		// vCard splitter — including ours — reads as a single card.
+		buf.WriteString(vcardpkg.Terminated(c.VCardData))
 	}
 
 	return buf.String(), nil

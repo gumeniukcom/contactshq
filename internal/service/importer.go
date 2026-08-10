@@ -48,7 +48,7 @@ func (s *ImporterService) ImportVCard(ctx context.Context, userID string, data s
 			return result, err
 		}
 
-		card = strings.TrimSpace(card)
+		card = vcardpkg.Terminated(card)
 		if card == "" {
 			continue
 		}
