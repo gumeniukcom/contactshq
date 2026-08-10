@@ -230,9 +230,14 @@ func covers(claim, file string) bool {
 	return false
 }
 
-// unclaimed reads the deliberate exemptions from specs/UNCLAIMED.md. Every backtick-quoted
-// token in the file counts, which keeps the format free-form: the argument for an exemption is
-// prose, and prose is the point — an exemption without a reason is just a hole.
+// unclaimed reads the deliberate exemptions from specs/UNCLAIMED.md — the FIRST COLUMN of its
+// table rows, and nothing else.
+//
+// Reading every backtick in the file, which is what this did first, let prose grant exemptions.
+// The row explaining why the Vite output is exempt mentions `web/src` in its reason, and that one
+// word silently excused all 106 files under it: the gate reported green over the largest tree in
+// the repository while checking none of it. An exemption has to be claimed in the column meant
+// for claims, so that mentioning a path while arguing about it stays free.
 func unclaimed(t *testing.T, root string) []string {
 	t.Helper()
 
@@ -245,8 +250,18 @@ func unclaimed(t *testing.T, root string) []string {
 	}
 
 	var out []string
-	for _, m := range backtickPath.FindAllStringSubmatch(string(data), -1) {
-		out = append(out, m[1])
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "|") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(trimmed, "|"), "|")
+		if len(cells) < 2 {
+			continue // a separator row, or a table with no reason column
+		}
+		if m := backtickPath.FindStringSubmatch(cells[0]); m != nil {
+			out = append(out, m[1])
+		}
 	}
 	return out
 }

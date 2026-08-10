@@ -850,6 +850,8 @@ Owned by this spec:
 - `internal/sync/engine_push_test.go`
 - `internal/sync/engine_incremental_test.go`
 - `internal/sync/engine_conflict_diffs_test.go`
+- `web/src/utils/sync-conflicts.ts`
+- `web/src/utils/sync-conflicts.spec.ts`
 - `internal/sync/provider.go`
 - `internal/sync/merger.go`
 - `internal/sync/merger_test.go`

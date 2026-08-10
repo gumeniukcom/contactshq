@@ -429,7 +429,8 @@ spec is built and enforced; the documentation half is not.
 - `.claude/skills/speckit-*/SKILL.md` — all ten (FR-015)
 - `specs/000-speckit-adoption/spec.md` and the eight product specs `001`–`008` (FR-024)
 - The `.gitignore` allowlist (FR-021) and the `.dockerignore` exclusions (FR-022)
-- `specs/UNCLAIMED.md` (FR-010)
+- `specs/UNCLAIMED.md`
+- `specs/BACKLOG.md` (FR-010)
 - `internal/speckit/` — the ownership gate (FR-008, FR-009, FR-010, FR-013), plus house-shape,
   English-only and cited-enforcer checks the original requirements did not ask for
 - `make specs`, and CI running the same checks inside `go test ./...` (FR-011)

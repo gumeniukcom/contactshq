@@ -16,6 +16,7 @@ what keep that honest, and both are enforced — see *The gate* below.
 | `000-speckit-adoption/` | The tree's own spec: ownership rules, numbering, gates. `partial` — its `## Status` says which half is built |
 | `001`–`008` | One domain each: identity, contacts, vCard, CardDAV, bulk transfer, sync, duplicates, runtime |
 | `UNCLAIMED.md` | The argued list of paths no spec owns *on purpose* |
+| `BACKLOG.md` | The triage of every Known Divergence: what to fix, what to decide, what is already a decision |
 | `../.specify/memory/constitution.md` | The rules that outrank convenience. Read it first |
 | `../.specify/templates/overrides/spec-template.md` | The house template. `resolve_template()` prefers it over upstream's |
 
