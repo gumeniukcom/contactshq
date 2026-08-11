@@ -578,6 +578,8 @@ including Google OAuth (006); the shared expensive-operation rate limiter, one b
 routes (008); or the CLI dispatch contract as a class (008).
 
 - `internal/carddav/authcache.go`
+- `internal/carddav/auth.go`
+- `cmd/server/set_password.go`
 - `internal/carddav/authcache_test.go`
 - `internal/carddav/authcache_invalidate_test.go`
 - `internal/carddav/throttle.go`

@@ -1,15 +1,14 @@
 # Feature Specification: Spec Kit Adoption
 
 Kind: meta
-Status: partial
+Status: shipped
 Constitution: v1.0.0
 
-Written against the tree at `23a167c` (`v0.4.0`) and amended as the adoption landed. Unlike the
-eight product specs beside it, this one is **partly forward-looking**: the scaffold, the specs, the
-constitution, the ownership gate and `specs/README.md` exist; `make specs-use` and the three file
-splits do not. `## Status` states exactly which is which, and `## Known Divergences` states what the
-missing part costs. Every requirement below either cites a file that can be read today or is marked
-as not built. This is the only spec in the tree that will carry a `tasks.md`.
+Written against the tree at `23a167c` (`v0.4.0`) and amended as the adoption landed, which it now
+has: every requirement below cites a file that can be read today. `## Status` lists what shipped
+and in which commit, `## Known Divergences` states what the tree still cannot check about itself,
+and `tasks.md` beside this file records the order it was built in. This is the only spec in the
+tree that carries a `tasks.md`.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -280,9 +279,10 @@ resolver prefers it over the upstream copy.
 - **FR-016**: Session state MUST live in `.specify/feature.json` and MUST be treated as
   per-machine. A spec MUST be selected with `make specs-use <slug>` before every
   `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze`, `/speckit-checklist` or
-  `/speckit-implement`. The untracked half is done — `.gitignore:68` ignores
-  `.specify/feature.json` with the reason written above it — the `make` target is not.
-  (`Makefile` [not built])
+  `/speckit-implement`. `.gitignore:68` ignores `.specify/feature.json` with the reason written
+  above it. The target takes the slug as a variable — `make specs-use SPEC=004` — because a bare
+  positional argument to `make` is a phony target, and a prefix that matches more than one spec
+  is an error rather than a guess. `make specs-current` prints the selection. (`Makefile`)
 - **FR-017**: Template amendments MUST live in `.specify/templates/overrides/`, because
   `resolve_template()` checks that directory before any preset or upstream copy and returns on
   the first hit (`.specify/scripts/bash/common.sh:406-413`). Editing the upstream template in
@@ -292,16 +292,21 @@ resolver prefers it over the upstream copy.
 **Prerequisite changes to files that exist today**
 
 - **FR-018**: `internal/carddav/server.go` MUST be split so that credential verification is
-  separable from WebDAV request routing. Verified: one file, 328 lines, holding both the
+  separable from WebDAV request routing. Done: the authentication surface moved to
+  `internal/carddav/auth.go` (owned by 001), leaving the transport surface with 004. It was one
+  file of 328 lines, holding both the
   transport surface (`ServeHTTP:71`, `serveSyncExtensions:118`, `isAddressBookPath:145`) and
   the authentication surface (`authenticate:160`, `verifyCredentials:190`,
   `verifyAppPassword:221`, `VerifyArgon2id:260`). The CardDAV domain and the auth domain
   cannot both claim this path under FR-008.
-- **FR-019**: `cmd/server/startup.go` MUST be split along the backup/sync seam. Verified: one
-  file, 168 lines, holding `reconcileInterruptedRuns:27` and `catchUpMissedBackups:78`
+- **FR-019**: `cmd/server/startup.go` MUST be split along the backup/sync seam. Done:
+  `pruneSyncRuns` moved to `cmd/server/startup_sync.go` (owned by 006). It was one file of 168
+  lines, holding `reconcileInterruptedRuns:27` and `catchUpMissedBackups:78`
   (backup domain) alongside `pruneSyncRuns:53` (sync domain).
 - **FR-020**: `cmd/server/cli.go` MUST be split so the `set-password` command is separable
-  from subcommand dispatch. Verified: one file, 257 lines, holding the dispatch table
+  from subcommand dispatch. Done: `set-password` and its helpers moved to
+  `cmd/server/set_password.go` (owned by 001). It was one file of 257 lines, holding the
+  dispatch table
   (`subcommands:34`, `looksLikeSubcommand:43`, `runCLI:49`, `parseInterleaved:69`,
   `printUsage:84`) alongside `runSetPassword:138`, `setPasswordEpilogue:200` and
   `readNewPassword:214`, which belong to the auth domain.
@@ -417,9 +422,9 @@ a few hundred files it is not a number worth committing to.
 
 ## Status
 
-`partial`, shipped in `d31c2c9` (scaffold, constitution, nine specs), `79bc642` (the ownership
-gate) and `356df1e` (the gate's audit surface), on top of `v0.4.0`. The ownership half of this
-spec is built and enforced; the documentation half is not.
+`shipped`, in `d31c2c9` (scaffold, constitution, nine specs), `79bc642` (the ownership gate),
+`356df1e` (the gate's audit surface), `0f4513c` (`specs/README.md` and the `CLAUDE.md` pointer)
+and `b8b65d4` (the backlog and the UNCLAIMED.md parser fix), on top of `v0.4.0`.
 
 **Built and enforced:**
 
@@ -437,13 +442,16 @@ spec is built and enforced; the documentation half is not.
 - `specs/README.md` (FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-012)
 - The `CLAUDE.md` pointer at `specs/README.md` (FR-023)
 
-**Not built:**
-
-- `make specs-use` (FR-016) — nothing selects the current spec, so a `/speckit-*` command acts
-  on whatever `.specify/feature.json` was left pointing at
-- The three file splits (FR-018, FR-019, FR-020). These are an improvement, not a debt: each
-  file is currently owned whole by one spec, so the ownership rule is satisfied without them
+- `make specs-use` / `make specs-current` (FR-016), writing the `.specify/feature.json` shape
+  `common.sh` reads
+- The three file splits (FR-018, FR-019, FR-020): the auth surface to `internal/carddav/auth.go`
+  and `set-password` to `cmd/server/set_password.go`, both owned by 001; `pruneSyncRuns` to
+  `cmd/server/startup_sync.go`, owned by 006
 - `specs/000-speckit-adoption/tasks.md`
+
+**Not built:** nothing. Two questions were deliberately left open rather than answered — who is
+the owner of record for a shared registry, and whether the `0.15.1.dev0` pin is authoritative for
+this repository — and both live in `specs/BACKLOG.md` rather than here.
 
 **What the gate does not check.** It reads `## Code Paths`, the section set, the header and the
 cited test names. It does not and cannot check that this section is true — the failure this spec
@@ -599,5 +607,6 @@ review-only conventions, because a gap is what they are:
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-11 | unreleased | Closed the last three requirements and promoted the spec to `shipped`. FR-016: `make specs-use SPEC=<number-or-slug>` writes the `.specify/feature.json` shape `common.sh` reads, with ambiguity an error rather than a guess, plus `make specs-current` — the wording moved from a positional argument to a variable because a bare positional to `make` is a phony target. FR-018/019/020: the three splits landed, so `internal/carddav/auth.go` and `cmd/server/set_password.go` belong to 001 and `cmd/server/startup_sync.go` to 006; the gate demanded owners for all three the moment they existed, which is that phase's acceptance signal. Added `tasks.md`. | — |
 | 2026-08-07 | — | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | — | Rewritten to the house template: header replaced (Kind/Status/Constitution; `Feature Branch` and `Input` removed), `Dependencies` and `Out of Scope` folded into Assumptions, `Status`/`Code Paths`/`References`/`Enforced By`/`Known Divergences`/`Amendments` added in template order. Ownership narrowed to an explicit path list. Every admission moved out of Edge Cases into Known Divergences. Status `Draft` → `partial`. Five open questions closed against files now on disk (FR-014, FR-015, FR-017, FR-024, FR-025); four left open in Known Divergences. FR-009/SC-003 aligned with the constitution's five dense trees. Status vocabulary lowercased to match the template header. | — |

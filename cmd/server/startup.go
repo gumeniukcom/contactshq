@@ -48,23 +48,6 @@ func reconcileInterruptedRuns(
 	}
 }
 
-// pruneSyncRuns trims pipeline history. Unlike backup_runs — about one row a day — this table
-// gains a row per pipeline execution and grows without bound.
-func pruneSyncRuns(ctx context.Context, repo repository.SyncRunRepository, retentionDays int, logger *zap.Logger) {
-	if repo == nil || retentionDays <= 0 {
-		return
-	}
-	removed, err := repo.DeleteOlderThan(ctx, time.Now().AddDate(0, 0, -retentionDays))
-	if err != nil {
-		logger.Warn("failed to prune sync run history", zap.Error(err))
-		return
-	}
-	if removed > 0 {
-		logger.Info("pruned sync run history",
-			zap.Int("removed", removed), zap.Int("retention_days", retentionDays))
-	}
-}
-
 // catchUpMissedBackups queues one backup per user whose last success is older than their
 // schedule allows.
 //

@@ -856,6 +856,7 @@ Owned by this spec:
 - `internal/sync/merger.go`
 - `internal/sync/merger_test.go`
 - `internal/sync/pipeline.go`
+- `cmd/server/startup_sync.go`
 - `internal/sync/pipeline_test.go`
 - `internal/sync/mode_test.go`
 - `internal/sync/endpoint.go`
