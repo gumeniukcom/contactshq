@@ -419,3 +419,62 @@ func TestPostgresListDedupValues(t *testing.T) {
 	assert.Equal(t, 2, reflect.TypeOf(domain.ContactValueRef{}).NumField(),
 		"ContactValueRef must stay a two-column projection: no card data")
 }
+
+// LIKE is case-sensitive on PostgreSQL and folds ASCII on SQLite. The whole suite runs on
+// SQLite, so a bare LIKE passed everywhere while search silently missed most matches on the
+// engine docker-compose provisions. This test has to be named TestPostgres… and live in this
+// package, or CI's `-run TestPostgres` filter never executes it.
+func TestPostgres_SearchIsCaseInsensitive(t *testing.T) {
+	db := setupPostgres(t)
+	ctx := context.Background()
+	require.NoError(t, repository.Migrate(ctx, db))
+
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash) VALUES ('u1', 'a@example.com', 'x')`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO address_books (id, user_id, name) VALUES ('ab1', 'u1', 'Contacts')`)
+	require.NoError(t, err)
+
+	repo := repository.NewBunContactRepository(db)
+	c := newContact("ab1")
+	c.FirstName = "John"
+	c.LastName = "Smith"
+	require.NoError(t, repo.Save(ctx, c, domain.ChildRecords{
+		Emails: []*domain.ContactEmail{{Value: "John.Smith@Example.COM", Type: "work"}},
+	}))
+
+	for _, query := range []string{"john", "JOHN", "JoHn", "smith", "example.com"} {
+		found, count, err := repo.Search(ctx, "ab1", query, 50, 0, repository.ListFilters{})
+		require.NoError(t, err, "query %q", query)
+		assert.Equal(t, 1, count, "query %q should match regardless of case", query)
+		assert.Len(t, found, 1, "query %q", query)
+	}
+}
+
+// A result that matched nothing must serialise as [] rather than null: the contact list view
+// reads .length off the response, and null blanked the screen on any no-match search.
+func TestPostgres_EmptyListAndSearchAreNotNil(t *testing.T) {
+	db := setupPostgres(t)
+	ctx := context.Background()
+	require.NoError(t, repository.Migrate(ctx, db))
+
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash) VALUES ('u1', 'a@example.com', 'x')`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO address_books (id, user_id, name) VALUES ('ab1', 'u1', 'Contacts')`)
+	require.NoError(t, err)
+
+	repo := repository.NewBunContactRepository(db)
+
+	list, count, err := repo.List(ctx, "ab1", 50, 0, repository.ListFilters{})
+	require.NoError(t, err)
+	assert.Zero(t, count)
+	assert.NotNil(t, list, "an empty page must marshal to [] and not null")
+
+	found, count, err := repo.Search(ctx, "ab1", "nothing-matches-this", 50, 0, repository.ListFilters{})
+	require.NoError(t, err)
+	assert.Zero(t, count)
+	assert.NotNil(t, found, "an empty search must marshal to [] and not null")
+}

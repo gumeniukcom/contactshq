@@ -33,10 +33,8 @@ Effort is S (an afternoon), M (a day or two), L (more).
 
 | # | What | Effort | Why it ranks here |
 |---|---|---|---|
-| 1 | Empty contact list serialises as `null` and blanks the list view | S | The only entry a user hits on an ordinary day with no unusual configuration: **any search that matches nothing**. `bun_contact.go:160-164` returns a nil slice; `ContactListView.vue:88` reads `.length` off it |
-| 2 | Search is case-sensitive on PostgreSQL — the engine `docker compose` ships | S | Bare `LIKE` (`bun_contact.go:172-182`). SQLite folds ASCII case; PostgreSQL does not. `john` does not find `John Smith` on the deployment the project itself provisions |
-| 3 | vCard write paths lose data | S | Three defects, one shape — a write path discards bytes it did not model. A flat `PUT` rebuilds the card and deletes PHOTO, KEY and every X- property (`contact.go:215`); a truncated file yields one card fewer with no error (`split.go:46-51`), including during a restore that has already deleted the originals; a CardDAV PUT stores a card whose inner UID differs from the path it is keyed on (`backend.go:263-274`) |
-| 4 | A browser edit destroys the preferred email or phone | S | `toFieldsPayload` emits only `{value, type}` (`contact-form.ts:29-33`) while `builder.go:107` stamps PREF on the first row. A Google contact whose preferred address is its second one loses that on the first save — and pushes the loss back out on the next sync. Same shape as the GEO bug fixed on 2026-08-08 |
+| 1 | vCard write paths lose data | S | Three defects, one shape — a write path discards bytes it did not model. A flat `PUT` rebuilds the card and deletes PHOTO, KEY and every X- property (`contact.go:215`); a truncated file yields one card fewer with no error (`split.go:46-51`), including during a restore that has already deleted the originals; a CardDAV PUT stores a card whose inner UID differs from the path it is keyed on (`backend.go:263-274`) |
+| 2 | A browser edit destroys the preferred email or phone | S | `toFieldsPayload` emits only `{value, type}` (`contact-form.ts:29-33`) while `builder.go:107` stamps PREF on the first row. A Google contact whose preferred address is its second one loses that on the first save — and pushes the loss back out on the next sync. Same shape as the GEO bug fixed on 2026-08-08 |
 | 5 | `reencode-vcards` repairs the database and no CardDAV client ever sees it | S | Writes through `db.NewUpdate`, bypassing `nextChangeSeq` (`reencode.go:161-168`). The CTag **is** the address book's `change_seq`, so a CTag-polling client (iOS) never asks — while the command prints "Every CardDAV client will re-download the whole address book". The one maintenance command the constitution holds up as its worked example does not reach the clients it exists to repair |
 | 6 | Two paths delete files they did not create | S | `make clean` runs `rm -f contactshq.db`, which is the default production DSN. Backup retention deletes any `.vcf` in the backup directory, and spec 005's own Independent Test tells the operator to put one there |
 | 7 | Refuse a second pipeline against the same provider type | S | Sync state is keyed on provider name, so two CardDAV pipelines share one cursor and one conflict queue, and the engine reads the crossover as mass local change. A 400 at save is safe under either answer to Q4 below, so it should not wait on it |
@@ -51,33 +49,30 @@ Effort is S (an afternoon), M (a day or two), L (more).
 | 16 | The handler layer has three test files for seventy-eight routes | M | Every user-visible defect on this list lives at a boundary these tests do not cross. The service and repository layers are well covered, which is why the bugs are not there |
 | 17 | Papercuts (13 items) | S | One afternoon, one commit. Includes: `?ids=` silently ignored by CSV and JSON export; `CHQ_SERVER_WRITE_TIMEOUT` missing from `envBoundKeys` so it is silently ignored; `bodylimit.go` matching with `strings.Contains`; `recordMerge` writing history before the merge that may fail; a dead `/docs/reverse-proxy.md` link in the setup guide; CI's `-run TestPostgres` filter meaning any PostgreSQL test named otherwise never runs |
 
-## Decide
+## Decided (2026-08-11)
 
-Sixteen questions where the trade-off is real and the answer is the maintainer's. Each is stated
-with what goes wrong under either choice; the full text is in the triage transcript.
+All sixteen open questions were answered by the maintainer. The work each one creates is listed
+here rather than in the table above, because these are decisions first and tasks second — a
+future reader needs the choice and its reason, not just the ticket.
 
-The three worth answering first, because other work waits on them:
-
-1. **How does an instance recover if its only administrator is demoted or deleted?** Nothing
-   validates that one remains, and no CLI path grants the role back — recovery today is editing
-   the database by hand.
-2. **How is the first account created on a fresh install?** Verified: the SPA has no sign-up form
-   and never calls `/auth/config`, while `README.md` says "The first account you register becomes
-   the administrator". The endpoint, the policy code and the README describe a flow no shipped
-   client performs.
-3. **Does a saved cron expression mean UTC or the process's local timezone?** The scheduler uses
-   `time.Local`; the UI labels the field "(UTC)". Containers happen to be UTC, so this only bites
-   a bare binary in another zone.
-
-The rest, in brief: is quick merge allowed to say "provably lossless" when the proof covers only
-emails and phones; is `carddav.max_resource_bytes` a database-wide invariant or an upload policy;
-does `carddav.path_prefix` earn its keep when two onboarding surfaces hard-code `/dav`; is a
-wholesale-supplied vCard stored verbatim forever or normalised on ingest; should the landing page
-work offline; is cross-origin API access supported at all; should a restore that wrote everything
-but failed to reconcile report success-with-warning or failure; should the JSON API reject unknown
-keys; is a syntactic email guard worth adding; is merge history user-facing or an operator tool;
-should OAuth `state` be bound to the initiating session; and does a shared registry like the route
-table get one owner of record or an explicit exception to Principle VII.
+| Question | Decision | Work it creates |
+|---|---|---|
+| Recovery when the only admin is lost | **Guard *and* CLI.** Each alone leaves a hole: the guard protects new instances, the command repairs bricked ones | Count remaining admins in `UpdateRole`/`DeleteUser`; add `contactshq set-role <email> <role>` |
+| First account on a fresh install | **Build the bootstrap sign-up form**, driven by `/auth/config` | A screen that is correct exactly once in an instance's life; makes the README true |
+| Cron timezone | **UTC.** The label already says so | `WithLocation(time.UTC)`; breaking note for bare binaries in another zone |
+| Quick merge "provably lossless" | **Widen the proof** to every field a merge can discard | Extend `subsetExpr` beyond emails and phones; fewer pairs will offer the shortcut |
+| `carddav.max_resource_bytes` | **Upload policy, not a database invariant.** A PUT no larger than what is already stored is accepted | Compare against the stored size before refusing; ends the unwritable-contact trap |
+| OAuth `state` | **Bind it to the initiating user** | Store the user id with the connection, compare in the callback |
+| Restore that failed to reconcile | **Success with a loud warning**, not 500 | `RestoreResult.warning`, surfaced prominently by the SPA |
+| Wholesale vCard on ingest | **Store verbatim.** A hub accepts; it does not nitpick | `reencode-vcards` is permanent — say so in its help and in spec 003 |
+| Unknown JSON keys | **Reject with 400.** A failure shaped like success is the worst kind | `DisallowUnknownFields` on the contact create/update path |
+| CORS | **Drop `cors.New()`** — nothing in the product needs it | Delete the middleware, reword FR-039 |
+| Changing an email | **Require the current password** — the only check that also catches a valid-but-wrong address | Add the confirmation to `PUT /users/me` |
+| Merge history | **Operator tool.** Reword Story 4 rather than build a screen for a rare recovery | Spec 007 text only |
+| `carddav.path_prefix` | **Freeze at `/dav`, delete the key** — a knob that today only breaks onboarding | Remove the config key and its uses |
+| Tailwind CDN | **Embed a hand-written stylesheet** for the two server-rendered pages | A product that does not phone home must not phone home for its own UI |
+| Shared registries | **One owner of record, read-only citations elsewhere.** Principle VII keeps no holes | Write the rule into `specs/README.md` |
+| Toolkit pin `0.15.1.dev0` | **The committed tree is authoritative.** It is vendored, offline-capable and matches five sibling repositories | Record it; stop reading the version number as a reproducibility promise |
 
 ## Stale
 

@@ -693,6 +693,15 @@ of this domain's HTTP layer.
 
 ## Known Divergences
 
+**Search folds case explicitly, because the two supported engines disagree.** `LIKE` is
+case-sensitive on PostgreSQL and folds ASCII on SQLite, and the whole suite runs on SQLite — so a
+bare `LIKE` passed everywhere while `john` failed to find `John Smith` on the engine
+docker-compose provisions. Both sides of every comparison are now lowered
+(`internal/repository/bun_contact.go`), and `TestPostgres_SearchIsCaseInsensitive` runs on the
+engine that actually differs. Note the folding is ASCII-only in SQLite: a query in a non-Latin
+script still matches only exactly on that engine.
+
+
 - **An empty address book serialises `contacts` as JSON `null`, not `[]`, while
   `GET /contacts/facets` normalises its empty lists to `[]`.** The repository returns a nil slice
   when nothing matches and the handler passes it straight to the encoder
@@ -788,6 +797,7 @@ of this domain's HTTP layer.
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-11 | unreleased | Empty list and search results are built as `[]` rather than nil, so a no-match search no longer serialises as `null` and blanks the list view; the same normalisation applied to `ListByIDs`, `ListAll` and `ListForDedup`, at the repository rather than at each caller. Search now folds case on both sides. Both covered by `TestPostgres_EmptyListAndSearchAreNotNil` and `TestPostgres_SearchIsCaseInsensitive`. | — |
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Conformed to the house template: house header, six repo sections added, `Scope Note` folded into the header prose and Code Paths/References, `Surprises` folded into Known Divergences, Success Criteria stripped of test and `.go` citations (moved to Enforced By). | — |
 | 2026-08-07 | unreleased | D6: `ContactFields` gained `geo`, so a form edit no longer erases `GEO`. FR-018 now states that `ContactFields` must be able to express the whole managed set. The divergence is narrowed, not removed: `geo` has no input in the browser (round-trip only), and a direct API caller who omits `geo` from `fields` still clears it, because `fields` remains a full replacement of the managed set. | — |

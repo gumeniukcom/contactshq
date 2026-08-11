@@ -153,7 +153,9 @@ func uidsOf(ctx context.Context, tx bun.Tx, addressBookID string, ids []string) 
 }
 
 func (r *BunContactRepository) List(ctx context.Context, addressBookID string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error) {
-	var contacts []*domain.Contact
+	// Empty, not nil: a nil slice marshals to `null`, and the list view reads .length off the
+	// response. Any filter combination that matches nothing produced it, not just a first run.
+	contacts := []*domain.Contact{}
 	q := r.db.NewSelect().Model(&contacts).
 		Where("c.address_book_id = ?", addressBookID)
 	q = applyFilters(q, filters)
@@ -164,22 +166,25 @@ func (r *BunContactRepository) List(ctx context.Context, addressBookID string, l
 }
 
 func (r *BunContactRepository) Search(ctx context.Context, addressBookID, query string, limit, offset int, filters ListFilters) ([]*domain.Contact, int, error) {
-	var contacts []*domain.Contact
-	like := "%" + query + "%"
+	contacts := []*domain.Contact{}
+	// Folded, because LIKE is case-sensitive on PostgreSQL — the engine docker-compose ships —
+	// while SQLite folds ASCII for it. Without this, searching "john" does not find "John Smith"
+	// on the deployment this project provisions for itself.
+	like := "%" + strings.ToLower(query) + "%"
 	q := r.db.NewSelect().Model(&contacts).
 		Where("c.address_book_id = ?", addressBookID).
 		Where(`(
-			c.first_name LIKE ? OR c.last_name LIKE ? OR c.nickname LIKE ?
-			OR c.email LIKE ? OR c.phone LIKE ?
-			OR c.org LIKE ? OR c.department LIKE ? OR c.title LIKE ? OR c.note LIKE ?
+			LOWER(c.first_name) LIKE ? OR LOWER(c.last_name) LIKE ? OR LOWER(c.nickname) LIKE ?
+			OR LOWER(c.email) LIKE ? OR LOWER(c.phone) LIKE ?
+			OR LOWER(c.org) LIKE ? OR LOWER(c.department) LIKE ? OR LOWER(c.title) LIKE ? OR LOWER(c.note) LIKE ?
 			OR c.id IN (
-				SELECT contact_id FROM contact_emails WHERE value LIKE ?
-				UNION SELECT contact_id FROM contact_phones WHERE value LIKE ?
+				SELECT contact_id FROM contact_emails WHERE LOWER(value) LIKE ?
+				UNION SELECT contact_id FROM contact_phones WHERE LOWER(value) LIKE ?
 				UNION SELECT contact_id FROM contact_addresses
-				      WHERE street LIKE ? OR city LIKE ? OR region LIKE ? OR country LIKE ?
-				UNION SELECT contact_id FROM contact_urls WHERE value LIKE ?
-				UNION SELECT contact_id FROM contact_ims WHERE value LIKE ?
-				UNION SELECT contact_id FROM contact_categories WHERE value LIKE ?
+				      WHERE LOWER(street) LIKE ? OR LOWER(city) LIKE ? OR LOWER(region) LIKE ? OR LOWER(country) LIKE ?
+				UNION SELECT contact_id FROM contact_urls WHERE LOWER(value) LIKE ?
+				UNION SELECT contact_id FROM contact_ims WHERE LOWER(value) LIKE ?
+				UNION SELECT contact_id FROM contact_categories WHERE LOWER(value) LIKE ?
 			)
 		)`,
 			like, like, like,
@@ -284,7 +289,7 @@ func (r *BunContactRepository) ListByIDs(ctx context.Context, addressBookID stri
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	var contacts []*domain.Contact
+	contacts := []*domain.Contact{}
 	err := r.db.NewSelect().Model(&contacts).
 		Where("address_book_id = ?", addressBookID).
 		Where("id IN (?)", bun.In(ids)).
@@ -294,7 +299,7 @@ func (r *BunContactRepository) ListByIDs(ctx context.Context, addressBookID stri
 }
 
 func (r *BunContactRepository) ListAll(ctx context.Context, addressBookID string) ([]*domain.Contact, error) {
-	var contacts []*domain.Contact
+	contacts := []*domain.Contact{}
 	err := r.db.NewSelect().Model(&contacts).
 		Where("address_book_id = ?", addressBookID).
 		OrderExpr("last_name ASC, first_name ASC").
@@ -307,7 +312,7 @@ func (r *BunContactRepository) ListAll(ctx context.Context, addressBookID string
 // ListAll pulls every column, including vcard_data and photo_uri: on ten thousand contacts
 // that is tens of megabytes read and discarded, for a scan that looks at four fields.
 func (r *BunContactRepository) ListForDedup(ctx context.Context, addressBookID string) ([]*domain.Contact, error) {
-	var contacts []*domain.Contact
+	contacts := []*domain.Contact{}
 	err := r.db.NewSelect().
 		Model(&contacts).
 		Column("id", "first_name", "last_name", "email", "phone").

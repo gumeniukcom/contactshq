@@ -81,6 +81,13 @@ changes may appear in a minor release.
 
 ### Fixed
 
+- **Searching for something that matches nothing no longer blanks the contact list.** An empty
+  result was serialised as JSON `null` rather than `[]`, and the list view reads `.length` off
+  it. Any filter combination with no matches produced this, not just a first run.
+- **Search is no longer case-sensitive on PostgreSQL.** `LIKE` folds ASCII case on SQLite and
+  does not on PostgreSQL, so on the engine `docker compose` provisions, searching `john` did not
+  find `John Smith`. Both sides of every comparison are now lowered. The folding SQLite performs
+  is ASCII-only, so a query in a non-Latin script still matches exactly there.
 - **The sync conflict screens no longer render blank.** When a conflict carried no field-level
   diffs — the ordinary manual-mode case, where the two sides edited *different* properties — the
   server stored the diff list as `null` rather than `[]`. `JSON.parse("null")` returns null
