@@ -81,6 +81,18 @@ changes may appear in a minor release.
 
 ### Fixed
 
+- **`reencode-vcards` now reaches the devices it exists to repair.** The command rewrote the
+  stored cards without advancing the address book's change counter — which is the CTag your
+  phone polls — so a device that watches the CTag never asked again and never saw the repair,
+  while the command told you every client would re-download. Both the behaviour and the message
+  are fixed. If you ran it before this release, run it again: the second run rewrites nothing
+  but does move the counter.
+- **Backup retention no longer deletes files it did not write.** A `.vcf` placed in the backup
+  directory by hand — which the documentation suggests doing — was counted as a backup and
+  pruned as one. Retention now recognises only its own `backup-<timestamp>` output. Such files
+  are still listed and still restorable.
+- **`make clean` no longer deletes `contactshq.db`.** That is the default production database
+  for anyone running the bare binary from a checkout. It moved to `make clean-db`.
 - **Editing a contact in the browser no longer moves its preferred email or phone.** The form
   sent only the value and type of each row, so the server re-stamped "preferred" onto the first
   one. A contact synced from Google whose preferred address was its second lost that on the

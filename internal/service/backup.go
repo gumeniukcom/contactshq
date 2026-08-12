@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -532,9 +533,23 @@ func (s *BackupService) reconcileSyncState(ctx context.Context, userID, addressB
 	return nil
 }
 
-// isBackupFilename reports whether a name is one this service would have written.
+// isBackupFilename reports whether a name is one this service is willing to LIST and RESTORE.
+// Deliberately permissive: an operator who drops a .vcf into the backup directory — which spec
+// 005's own Independent Test tells them to do — should be able to restore from it.
 func isBackupFilename(name string) bool {
 	return strings.HasSuffix(name, ".vcf") || strings.HasSuffix(name, ".vcf.gz")
+}
+
+// mintedBackupName matches exactly what writeBackupFile produces: backup-<YYYYMMDD-HHMMSS-mmm>
+// with a .vcf or .vcf.gz suffix.
+var mintedBackupName = regexp.MustCompile(`^backup-\d{8}-\d{6}-\d{3}\.vcf(\.gz)?$`)
+
+// isMintedBackup reports whether this service wrote the file, and is the check RETENTION uses.
+// Deletion is held to a stricter standard than listing: retention exists to prune our own
+// output, and a file we did not create is not ours to remove — however much it looks like a
+// backup.
+func isMintedBackup(name string) bool {
+	return mintedBackupName.MatchString(name)
 }
 
 // readBackupFile reads a backup file and decompresses it if it is gzip-encoded.
@@ -573,11 +588,23 @@ func (s *BackupService) readBackupFile(path string) (string, error) {
 	return string(data), nil
 }
 
-// applyRetention deletes the oldest backups, keeping only maxCount files.
+// applyRetention deletes the oldest backups this service wrote, keeping only maxCount of them.
+//
+// Files it did not write are neither counted nor deleted: retention prunes our own output, and
+// an archive an operator placed here by hand is not ours to remove.
 func (s *BackupService) applyRetention(ctx context.Context, userID string, maxCount int) error {
-	backups, err := s.List(ctx, userID)
-	if err != nil || len(backups) <= maxCount {
+	listed, err := s.List(ctx, userID)
+	if err != nil {
 		return err
+	}
+	backups := make([]BackupInfo, 0, len(listed))
+	for _, b := range listed {
+		if isMintedBackup(b.ID) {
+			backups = append(backups, b)
+		}
+	}
+	if len(backups) <= maxCount {
+		return nil
 	}
 	// List is sorted newest-first; delete from the tail. Collect the failures instead of
 	// dropping them: a directory that cannot be pruned is exactly the condition an operator

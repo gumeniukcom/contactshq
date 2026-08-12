@@ -573,6 +573,7 @@ Paths this spec **owns**. Exactly one spec may own a path (constitution, Princip
 - `internal/service/exporter.go`
 - `internal/service/exporter_test.go`
 - `internal/service/backup.go`
+- `internal/service/backup_retention_scope_test.go`
 - `internal/service/backup_integrity_test.go`
 - `internal/service/backup_restore_test.go`
 - `internal/service/backup_run_test.go`
@@ -729,6 +730,14 @@ rate limiter (008); replication to a remote provider, which is not a backup (006
 
 ## Known Divergences
 
+**Retention deletes only files this service wrote.** `isBackupFilename` is a suffix check, and
+retention used it — so a `.vcf` an operator placed in the backup directory, which this spec's own
+Independent Test tells them to do, was counted as a backup and deleted as one. Listing and
+restoring stay permissive on purpose; deletion is now held to the minted
+`backup-<YYYYMMDD-HHMMSS-mmm>` pattern. A hand-placed archive is therefore listed, restorable,
+and never removed.
+
+
 **Import and restore used to strip the card terminator, and export glued the cards together.**
 `strings.TrimSpace` on each card before storing removed the trailing CRLF, so concatenating
 stored cards produced `END:VCARDBEGIN:VCARD` on one physical line — and `SplitVCards`, which
@@ -850,6 +859,7 @@ These are review-only. Naming them is the point of this section; each is a gap, 
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-12 | unreleased | Retention discriminates between files this service wrote and files it merely recognises, ending the deletion of operator-placed archives. `make clean` no longer removes `contactshq.db`; that moved to `make clean-db`, named for what it destroys. | — |
 | 2026-08-10 | unreleased | **D-term** — recorded the terminator loss on import/restore and the unseparated concatenation on export/backup, which silently reduced a multi-card address book to one contact on any round trip. Fixed at all four sites via `vcard.Terminated`; regression covered by `TestTerminated_ConcatenatedCardsStillSplit`. Found by the divergence triage, admitted by no spec. | — |
 | 2026-08-07 | v0.4.0 | Initial retrospective spec, reconstructed at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Conformed to the house template: house header replacing `Feature Branch`/`Input`; ownership recorded in `Code Paths` and `References`; `Enforced By` added with verified test names; admissions moved out of Edge Cases and Assumptions into `Known Divergences`, including the requirements that have no enforcer; SC-002 restated as FR-049 states it rather than as an absolute; SC-009 corrected to agree with FR-013; test and file citations removed from Success Criteria and added to the user stories. | — |

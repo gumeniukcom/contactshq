@@ -11,6 +11,7 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/gumeniukcom/contactshq/internal/domain"
+	"github.com/gumeniukcom/contactshq/internal/repository"
 	"github.com/gumeniukcom/contactshq/internal/service"
 	chqsync "github.com/gumeniukcom/contactshq/internal/sync"
 	vcardpkg "github.com/gumeniukcom/contactshq/internal/vcard"
@@ -72,8 +73,10 @@ run rewrites the whole address book on Google or CardDAV.`)
 		fmt.Fprint(stdout, `About to rewrite stored vCards.
 
 There is no undo. Take a database dump first if you have not.
-Every CardDAV client will re-download the whole address book, because each rewritten card
-gets a new ETag. Stop your pipelines before this run and start them after it.
+Every CardDAV client will re-download the affected cards: each gets a new ETag, and the
+address book's change counter — the CTag your devices poll — advances with them, so a
+device that only watches the CTag learns about the repair too. Stop your pipelines before
+this run and start them after it.
 
 `)
 	}
@@ -138,6 +141,13 @@ func reencodeContacts(ctx context.Context, db *bun.DB, apply bool, stdout io.Wri
 			break
 		}
 
+		// Rewrites are grouped by address book so each book's change counter advances once per
+		// batch and every card rewritten in it shares that sequence — which is what a bulk write
+		// means. Bumping it is not optional: the counter IS the collection's CTag, so without it
+		// a CTag-polling client (iOS is one) never asks again and never sees the repair this
+		// command exists to perform.
+		pending := map[string][]*domain.Contact{}
+
 		for _, c := range contacts {
 			scanned++
 
@@ -155,16 +165,30 @@ func reencodeContacts(ctx context.Context, db *bun.DB, apply bool, stdout io.Wri
 				continue
 			}
 
-			// change_seq is deliberately left alone. Bumping it would make every CardDAV
-			// client re-fetch through the sync-collection report as well as by ETag, and the
-			// ETag change already tells them what they need to know.
-			if _, err := db.NewUpdate().
-				Model((*domain.Contact)(nil)).
-				Set("vcard_data = ?", rewritten).
-				Set("etag = ?", service.ContactETag(rewritten)).
-				Where("id = ?", c.ID).
-				Exec(ctx); err != nil {
-				return changed, scanned, fmt.Errorf("update contact %s: %w", c.ID, err)
+			c.VCardData = rewritten
+			pending[c.AddressBookID] = append(pending[c.AddressBookID], c)
+		}
+
+		for abID, rewritten := range pending {
+			if err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+				seq, err := repository.BumpChangeSeq(ctx, tx, abID)
+				if err != nil {
+					return fmt.Errorf("bump change_seq for address book %s: %w", abID, err)
+				}
+				for _, c := range rewritten {
+					if _, err := tx.NewUpdate().
+						Model((*domain.Contact)(nil)).
+						Set("vcard_data = ?", c.VCardData).
+						Set("etag = ?", service.ContactETag(c.VCardData)).
+						Set("change_seq = ?", seq).
+						Where("id = ?", c.ID).
+						Exec(ctx); err != nil {
+						return fmt.Errorf("update contact %s: %w", c.ID, err)
+					}
+				}
+				return nil
+			}); err != nil {
+				return changed, scanned, err
 			}
 		}
 

@@ -1,4 +1,4 @@
-.PHONY: build build-frontend run test specs specs-use specs-current clean docker docker-up docker-down lint tidy dev-frontend setup-hooks
+.PHONY: build build-frontend run test specs specs-use specs-current clean clean-db docker docker-up docker-down lint tidy dev-frontend setup-hooks
 
 BINARY    = contactshq
 VERSION   = $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -57,9 +57,14 @@ test-coverage:
 
 clean:
 	rm -f $(BINARY) coverage.out coverage.html
-	rm -f contactshq.db
 	rm -rf internal/web/static/spa/*
 	touch internal/web/static/spa/.gitkeep
+
+# Separate, and named for what it destroys. `contactshq.db` is the DEFAULT production DSN
+# (config.go), so an operator running the bare binary from a checkout keeps their only copy of
+# their contacts there — and `make clean` is a command people run without thinking.
+clean-db:
+	rm -f contactshq.db contactshq.db-shm contactshq.db-wal
 
 tidy:
 	go mod tidy

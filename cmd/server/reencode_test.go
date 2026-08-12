@@ -184,3 +184,53 @@ func insertContact(ctx context.Context, db *bun.DB, id, uid, card string) error 
 	}).Exec(ctx)
 	return err
 }
+
+// The command exists to repair cards a CardDAV client is already showing wrongly — corrupted
+// iOS photos are the worked example. Rewriting them without advancing the address book's
+// change counter meant a CTag-polling device never asked again, so the repair reached the
+// database and no client at all, while the command printed the opposite to the operator.
+func TestReencodeContacts_ApplyAdvancesTheChangeCounter(t *testing.T) {
+	db := newReencodeDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, seedAddressBook(ctx, db))
+	require.NoError(t, insertContact(ctx, db, "c1", "legacy-1", legacyCard))
+
+	var before domain.AddressBook
+	require.NoError(t, db.NewSelect().Model(&before).Where("id = ?", "ab1").Scan(ctx))
+
+	var out bytes.Buffer
+	changed, _, err := reencodeContacts(ctx, db, true, &out)
+	require.NoError(t, err)
+	require.Equal(t, 1, changed)
+
+	var after domain.AddressBook
+	require.NoError(t, db.NewSelect().Model(&after).Where("id = ?", "ab1").Scan(ctx))
+	require.Greater(t, after.ChangeSeq, before.ChangeSeq,
+		"the CTag must move, or a polling client never learns of the repair")
+
+	var stored domain.Contact
+	require.NoError(t, db.NewSelect().Model(&stored).Where("id = ?", "c1").Scan(ctx))
+	require.Equal(t, after.ChangeSeq, stored.ChangeSeq,
+		"the rewritten contact must carry that sequence, or sync-collection skips it")
+}
+
+// A dry run must not move the counter either — it writes nothing at all.
+func TestReencodeContacts_DryRunLeavesTheChangeCounterAlone(t *testing.T) {
+	db := newReencodeDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, seedAddressBook(ctx, db))
+	require.NoError(t, insertContact(ctx, db, "c1", "legacy-1", legacyCard))
+
+	var before domain.AddressBook
+	require.NoError(t, db.NewSelect().Model(&before).Where("id = ?", "ab1").Scan(ctx))
+
+	var out bytes.Buffer
+	_, _, err := reencodeContacts(ctx, db, false, &out)
+	require.NoError(t, err)
+
+	var after domain.AddressBook
+	require.NoError(t, db.NewSelect().Model(&after).Where("id = ?", "ab1").Scan(ctx))
+	require.Equal(t, before.ChangeSeq, after.ChangeSeq)
+}

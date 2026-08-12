@@ -516,6 +516,7 @@ the five dense trees.
 - `internal/repository/bun_contact_save_test.go`
 - `internal/repository/bun_contact_search_test.go`
 - `internal/repository/change_journal.go`
+- `internal/repository/change_seq_export.go`
 - `internal/repository/change_journal_test.go`
 - `internal/repository/types.go`
 - `internal/service/addressbook.go`

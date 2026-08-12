@@ -519,6 +519,15 @@ SC-008 (`:286-288`).
 
 ## Known Divergences
 
+**`reencode-vcards` advances the address book's change counter.** It wrote through
+`db.NewUpdate`, bypassing the counter — and the counter IS the CTag, so a CTag-polling client
+(iOS) never issued the PROPFIND that would have revealed the new ETags, and a sync-collection
+client filtering on `contacts.change_seq` never saw the rows. The command existed to repair
+cards those very clients display wrongly, and reached none of them, while printing the opposite
+to the operator. Rewrites are now grouped per address book so the counter advances once per
+batch and every card rewritten in it shares that sequence.
+
+
 **A card left open at EOF is returned, not dropped.** `SplitVCards` emitted a card only on
 `END:VCARD`, so a truncated file yielded one contact fewer with no error — including on a backup
 restore, which reaches the same splitter *after* replace mode has deleted the originals. The
@@ -615,6 +624,7 @@ cards, with no data migration.
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-12 | unreleased | `reencode-vcards --apply` bumps `change_seq` per address book inside the same transaction as the rewrite, and the operator warning no longer claims a repair that did not reach clients. Covered by `TestReencodeContacts_ApplyAdvancesTheChangeCounter`. | — |
 | 2026-08-11 | unreleased | A truncated final card is returned rather than silently discarded, so an import or restore reports the failure instead of losing a contact. | — |
 | 2026-08-10 | unreleased | **D-term** — recorded the terminator loss on import/restore and the unseparated concatenation on export/backup, which silently reduced a multi-card address book to one contact on any round trip. Fixed at all four sites via `vcard.Terminated`; regression covered by `TestTerminated_ConcatenatedCardsStillSplit`. Found by the divergence triage, admitted by no spec. | — |
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
