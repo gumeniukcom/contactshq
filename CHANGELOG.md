@@ -81,6 +81,11 @@ changes may appear in a minor release.
 
 ### Fixed
 
+- **Editing a contact in the browser no longer moves its preferred email or phone.** The form
+  sent only the value and type of each row, so the server re-stamped "preferred" onto the first
+  one. A contact synced from Google whose preferred address was its second lost that on the
+  first save — and the loss went back out to Google on the next sync. There is still no input
+  for it: the form carries the stored value through untouched, as it already does for `GEO`.
 - **A flat contact update no longer deletes the rest of the card.** `PUT` with only
   `first_name` (or any other flat field) rebuilt the vCard from the properties this application
   models, discarding an embedded photo, a KEY, an `X-ABLabel` written by iOS — anything the card

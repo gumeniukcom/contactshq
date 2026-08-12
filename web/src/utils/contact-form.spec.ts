@@ -14,7 +14,7 @@ describe('toFieldsPayload', () => {
 
     const payload = toFieldsPayload(form)
 
-    expect(payload.emails).toEqual([{ value: 'a@example.com', type: 'work' }])
+    expect(payload.emails).toEqual([{ value: 'a@example.com', type: 'work', pref: 0, label: '' }])
     expect(payload.phones).toEqual([])
     expect(payload.categories).toEqual(['vip'])
   })
@@ -61,9 +61,30 @@ describe('formFromContact', () => {
     const form = formFromContact(contact)
 
     expect(form.emails).toEqual([
-      { value: 'a@example.com', type: 'work' },
-      { value: 'b@example.com', type: 'home' },
+      { value: 'a@example.com', type: 'work', pref: 1, label: '' },
+      { value: 'b@example.com', type: 'home', pref: 0, label: '' },
     ])
+  })
+
+  // The defect this guards: the form carried only {value, type}, so every save rewrote PREF
+  // onto the first row. A Google contact whose preferred address was its second one lost that
+  // on the first edit from the web UI — and pushed the loss out on the next sync.
+  it('round-trips pref through the form so an edit does not move the preferred value', () => {
+    const contact: Partial<Contact> = {
+      emails: [
+        { id: '1', contact_id: 'c', value: 'first@example.com', type: 'work', pref: 0, label: '' },
+        { id: '2', contact_id: 'c', value: 'preferred@example.com', type: 'home', pref: 1, label: '' },
+      ],
+      phones: [
+        { id: '3', contact_id: 'c', value: '+15550001', type: 'cell', pref: 0, label: '' },
+        { id: '4', contact_id: 'c', value: '+15550002', type: 'work', pref: 1, label: '' },
+      ],
+    }
+
+    const payload = toFieldsPayload(formFromContact(contact))
+
+    expect(payload.emails.map((e) => e.pref)).toEqual([0, 1])
+    expect(payload.phones.map((p) => p.pref)).toEqual([0, 1])
   })
 
   it('falls back to the primary field when child rows are absent', () => {

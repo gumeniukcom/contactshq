@@ -694,6 +694,15 @@ of this domain's HTTP layer.
 
 ## Known Divergences
 
+**The form carries `pref` and `label` even though no input renders them.** `fields` is a full
+replacement of the managed vCard properties, so a payload that omits them makes the server
+re-stamp PREF onto the first row — a contact whose preferred address was its second one lost
+that on the first save from the web UI, and the loss was pushed out on the next sync. This is
+the same shape as the GEO defect: the form is a *transport* for values it does not display.
+URLs and IMs carry `pref` only, because neither the schema nor the domain model has a label for
+them. Covered by the round-trip assertion in `web/src/utils/contact-form.spec.ts`.
+
+
 **A flat update merges into the stored card instead of rebuilding it.** `PUT {"first_name":"X"}`
 used to run `BuildVCard`, which renders only the properties this application models — so an
 edit through the flat path deleted PHOTO, KEY, X-ABLabel and every other property the card
@@ -807,6 +816,7 @@ script still matches only exactly on that engine.
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-12 | unreleased | `toFieldsPayload` and `formFromContact` carry `pref` and `label` through, ending the silent destruction of the preferred email or phone on any edit from the web UI. | — |
 | 2026-08-11 | unreleased | Flat updates merge rather than rebuild, so unmodelled vCard properties survive; `FN` re-derives on a rename. Covered by `TestUpdate_FlatEditKeepsUnmodelledProperties`. | — |
 | 2026-08-11 | unreleased | Empty list and search results are built as `[]` rather than nil, so a no-match search no longer serialises as `null` and blanks the list view; the same normalisation applied to `ListByIDs`, `ListAll` and `ListForDedup`, at the repository rather than at each caller. Search now folds case on both sides. Both covered by `TestPostgres_EmptyListAndSearchAreNotNil` and `TestPostgres_SearchIsCaseInsensitive`. | — |
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |

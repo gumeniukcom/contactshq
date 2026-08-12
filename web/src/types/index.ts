@@ -128,6 +128,14 @@ export interface Contact {
 export interface ContactFormField {
   value: string
   type: string
+  /**
+   * Carried through the form untouched. No input renders either, but `fields` is a full
+   * replacement of the managed vCard properties: dropping them here made every save rewrite
+   * PREF onto the first row, so a contact whose preferred address was its second one lost that
+   * on the first edit — and pushed the loss out on the next sync.
+   */
+  pref?: number
+  label?: string
 }
 
 export interface ContactFormAddress {
@@ -194,10 +202,10 @@ export interface ContactFieldsPayload {
   geo: string
   bday: string
   anniversary: string
-  emails: { value: string; type: string }[]
-  phones: { value: string; type: string }[]
-  urls: { value: string; type: string }[]
-  ims: { value: string; type: string }[]
+  emails: { value: string; type: string; pref?: number; label?: string }[]
+  phones: { value: string; type: string; pref?: number; label?: string }[]
+  urls: { value: string; type: string; pref?: number; label?: string }[]
+  ims: { value: string; type: string; pref?: number; label?: string }[]
   addresses: {
     type: string
     street: string

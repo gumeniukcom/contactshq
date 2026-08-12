@@ -25,8 +25,10 @@ function toVCardDate(d: string): string {
  * the form knows about. The server owns vCard construction now.
  */
 export function toFieldsPayload(form: ContactFormData): ContactFieldsPayload {
-  const values = (rows: { value: string; type?: string }[]) =>
-    rows.filter((r) => r.value.trim() !== '').map((r) => ({ value: r.value.trim(), type: r.type || '' }))
+  const values = (rows: { value: string; type?: string; pref?: number; label?: string }[]) =>
+    rows
+      .filter((r) => r.value.trim() !== '')
+      .map((r) => ({ value: r.value.trim(), type: r.type || '', pref: r.pref ?? 0, label: r.label ?? '' }))
 
   return {
     first_name: form.first_name,
@@ -87,13 +89,13 @@ export function formFromContact(contact: Partial<Contact>): ContactFormData {
     tz: contact.tz || '',
     geo: contact.geo || '',
     emails:
-      contact.emails?.map((e) => ({ value: e.value, type: e.type || '' })) ??
+      contact.emails?.map((e) => ({ value: e.value, type: e.type || '', pref: e.pref ?? 0, label: e.label ?? '' })) ??
       (contact.email ? [{ value: contact.email, type: '' }] : [{ value: '', type: '' }]),
     phones:
-      contact.phones?.map((p) => ({ value: p.value, type: p.type || '' })) ??
+      contact.phones?.map((p) => ({ value: p.value, type: p.type || '', pref: p.pref ?? 0, label: p.label ?? '' })) ??
       (contact.phone ? [{ value: contact.phone, type: '' }] : [{ value: '', type: '' }]),
-    urls: contact.urls?.map((u) => ({ value: u.value, type: u.type || '' })) ?? [],
-    ims: contact.ims?.map((im) => ({ value: im.value, type: im.type || '' })) ?? [],
+    urls: contact.urls?.map((u) => ({ value: u.value, type: u.type || '', pref: u.pref ?? 0 })) ?? [],
+    ims: contact.ims?.map((im) => ({ value: im.value, type: im.type || '', pref: im.pref ?? 0 })) ?? [],
     addresses:
       contact.addresses?.map((a) => ({
         street: a.street || '',
