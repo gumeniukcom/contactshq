@@ -423,6 +423,7 @@ Owned by this spec:
 - `internal/vcard/terminate.go`
 - `internal/vcard/terminate_test.go`
 - `internal/vcard/split.go`
+- `internal/vcard/split_truncated_test.go`
 - `internal/vcard/split_long_test.go`
 - `internal/vcard/domain_helper.go`
 - `internal/vcard/merge.go`
@@ -518,6 +519,13 @@ SC-008 (`:286-288`).
 
 ## Known Divergences
 
+**A card left open at EOF is returned, not dropped.** `SplitVCards` emitted a card only on
+`END:VCARD`, so a truncated file yielded one contact fewer with no error — including on a backup
+restore, which reaches the same splitter *after* replace mode has deleted the originals. The
+pending buffer is now returned so the caller parses it, fails, and counts the failure. Covered by
+`TestSplitVCards_KeepsATruncatedFinalCard`.
+
+
 **Import and restore used to strip the card terminator, and export glued the cards together.**
 `strings.TrimSpace` on each card before storing removed the trailing CRLF, so concatenating
 stored cards produced `END:VCARDBEGIN:VCARD` on one physical line — and `SplitVCards`, which
@@ -607,6 +615,7 @@ cards, with no data migration.
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-11 | unreleased | A truncated final card is returned rather than silently discarded, so an import or restore reports the failure instead of losing a contact. | — |
 | 2026-08-10 | unreleased | **D-term** — recorded the terminator loss on import/restore and the unseparated concatenation on export/backup, which silently reduced a multi-card address book to one contact on any round trip. Fixed at all four sites via `vcard.Terminated`; regression covered by `TestTerminated_ConcatenatedCardsStillSplit`. Found by the divergence triage, admitted by no spec. | — |
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Conformed to the house template. Withdrew FR-028, FR-029 and FR-030 to spec 007 and FR-041 to spec 008 under constitution Principle VII; numbers retired, not reused. Moved eight admissions out of Edge Cases into Known Divergences and added four more (unenforced FR-010, untested FR-020/FR-021, indirectly enforced FR-005/FR-009, untested splitter discard). | — |

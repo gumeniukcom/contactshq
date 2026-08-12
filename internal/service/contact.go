@@ -211,8 +211,19 @@ func (s *ContactService) Update(ctx context.Context, userID, contactID string, i
 		if input.Note != nil {
 			parsed.Note = *input.Note
 		}
-		// Rebuild vCard from the updated parsed state
-		contact.VCardData, err = vcardpkg.BuildVCard(parsed)
+		// A changed name component must re-derive the display name. BuildVCard keeps p.FN when
+		// it is already set, and `parsed` was seeded from the stored card — so renaming through
+		// the flat path updated N and left FN reading the old name. Clearing it only when a name
+		// component actually changed keeps a display name the user set deliberately.
+		if input.FirstName != nil || input.LastName != nil {
+			parsed.FN = ""
+		}
+
+		// Merge, not rebuild. BuildVCard renders only the properties this application models,
+		// so a flat update — `PUT {"first_name":"X"}` — used to delete PHOTO, KEY, X-ABLabel and
+		// every other property the card arrived with. `parsed` was seeded from the stored card,
+		// so merging writes the changed fields back over the original bytes.
+		contact.VCardData, err = vcardpkg.MergeIntoVCard(contact.VCardData, parsed)
 		if err != nil {
 			return nil, fmt.Errorf("build vcard: %w", err)
 		}

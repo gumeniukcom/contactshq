@@ -81,6 +81,19 @@ changes may appear in a minor release.
 
 ### Fixed
 
+- **A flat contact update no longer deletes the rest of the card.** `PUT` with only
+  `first_name` (or any other flat field) rebuilt the vCard from the properties this application
+  models, discarding an embedded photo, a KEY, an `X-ABLabel` written by iOS — anything the card
+  arrived with. It merges into the stored card now. Renaming through the same path also left
+  `FN` reading the old name while `N` changed; the display name is re-derived when a name
+  component changes.
+- **A truncated vCard file is reported instead of losing a contact.** A card cut off before
+  `END:VCARD` was dropped silently, so an import announced success with one contact fewer — and
+  a `replace` restore did the same after deleting the originals. The incomplete card is now
+  parsed, rejected and counted.
+- **A CardDAV `PUT` stores the card under the UID it is addressed by.** The client's bytes were
+  kept unchanged, so a card whose inner UID differed from its path was what export and sync then
+  pushed onward.
 - **Searching for something that matches nothing no longer blanks the contact list.** An empty
   result was serialised as JSON `null` rather than `[]`, and the list view reads `.length` off
   it. Any filter combination with no matches produced this, not just a first run.

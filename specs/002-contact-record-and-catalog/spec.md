@@ -521,6 +521,7 @@ the five dense trees.
 - `internal/service/addressbook.go`
 - `internal/service/contact.go`
 - `internal/service/contact_test.go`
+- `internal/service/contact_flat_update_test.go`
 - `internal/service/contact_bulk_test.go`
 - `internal/service/contact_fields.go`
 - `internal/service/contact_fields_test.go`
@@ -693,6 +694,15 @@ of this domain's HTTP layer.
 
 ## Known Divergences
 
+**A flat update merges into the stored card instead of rebuilding it.** `PUT {"first_name":"X"}`
+used to run `BuildVCard`, which renders only the properties this application models — so an
+edit through the flat path deleted PHOTO, KEY, X-ABLabel and every other property the card
+arrived with. It now merges. Separately, and predating that: `BuildVCard` keeps `p.FN` when it is
+already set, and `parsed` is seeded from the stored card, so renaming through the flat path
+updated `N` and left `FN` reading the old name. `FN` is now cleared when a name component
+changes, which re-derives it while leaving a deliberately-set display name alone on other edits.
+
+
 **Search folds case explicitly, because the two supported engines disagree.** `LIKE` is
 case-sensitive on PostgreSQL and folds ASCII on SQLite, and the whole suite runs on SQLite — so a
 bare `LIKE` passed everywhere while `john` failed to find `John Smith` on the engine
@@ -797,6 +807,7 @@ script still matches only exactly on that engine.
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-11 | unreleased | Flat updates merge rather than rebuild, so unmodelled vCard properties survive; `FN` re-derives on a rename. Covered by `TestUpdate_FlatEditKeepsUnmodelledProperties`. | — |
 | 2026-08-11 | unreleased | Empty list and search results are built as `[]` rather than nil, so a no-match search no longer serialises as `null` and blanks the list view; the same normalisation applied to `ListByIDs`, `ListAll` and `ListForDedup`, at the repository rather than at each caller. Search now folds case on both sides. Both covered by `TestPostgres_EmptyListAndSearchAreNotNil` and `TestPostgres_SearchIsCaseInsensitive`. | — |
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Conformed to the house template: house header, six repo sections added, `Scope Note` folded into the header prose and Code Paths/References, `Surprises` folded into Known Divergences, Success Criteria stripped of test and `.go` citations (moved to Enforced By). | — |

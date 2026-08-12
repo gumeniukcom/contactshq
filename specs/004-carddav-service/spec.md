@@ -571,6 +571,12 @@ with enforcers that do not exist.
 
 ## Known Divergences
 
+**A PUT stores the card under the UID it is addressed by.** The contact is keyed on the UID in
+the request path, but the client's bytes were stored unchanged — so a card claiming a different
+UID inside was what export and sync pushed onward. `InjectUID` now runs before the size check
+and the ETag hash, so the stored bytes, the key and the hash all agree.
+
+
 **Unenforced limits**
 
 - **`carddav.max_resource_bytes` binds one write path, not the record.** FR-036 refuses an
@@ -696,6 +702,7 @@ with enforcers that do not exist.
 
 | Date | Tag | Change | Issue/PR |
 |------|-----|--------|----------|
+| 2026-08-11 | unreleased | `PutAddressObject` injects the path UID into the stored card before hashing, ending the mismatch between the key and the card's own UID. | — |
 | 2026-08-07 | v0.4.0 | Initial spec, reconstructed from the implementation at `23a167c`. | — |
 | 2026-08-07 | v0.4.0 | Restructured to the house template; ownership of `internal/carddav/server.go` recorded here in full; admissions moved from Edge Cases and Assumptions into Known Divergences; corrected the claim that the setup guide was the only server-rendered page loading a CDN asset (`landing.html:7` does too). | — |
 | 2026-08-07 | unreleased | D1: `carddav.max_resource_bytes` is now enforced on `PUT` through `/dav` with a 413 (FR-036 added, enforced by `TestPutRejectsACardOverTheAdvertisedLimit`, `TestPutAcceptsACardAtTheAdvertisedLimit`, `TestPutIsUnboundedWhenNoLimitIsSet`). The divergence that it was "advertised, never enforced" is replaced by three narrower ones: the limit binds the `/dav` write path only — so a card stored above it via the API, an import or inbound sync becomes permanently unwritable from a device; a refusal is diagnosable only from one access-log line; and `/dav` is exempt from Principle III's fixed error text, which is why the 413 body carries the byte counts. The paired divergence saying `CHANGELOG.md` was wrong to promise a 413 is removed — the changelog is now right, and carries the upgrade note and pre-flight query. FR-011 is unchanged and still untested: only enforcement gained enforcers, not the advertisement. Backend and test line citations throughout renumbered for the inserted code. | — |

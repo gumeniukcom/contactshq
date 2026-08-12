@@ -271,7 +271,10 @@ func (b *Backend) PutAddressObject(ctx context.Context, path string, card vcard.
 		}
 	}
 
-	vcardData := cardToString(card)
+	// The contact is keyed on the UID in the path, so the stored card must carry the same one.
+	// Storing the client's bytes unchanged left a card claiming a different UID, and that card
+	// is what export and sync push onward.
+	vcardData := chqvcard.InjectUID(cardToString(card), uid)
 
 	// Policy, not protection: go-webdav has already read and decoded the body (its own
 	// max-resource-size check is a TODO at carddav/server.go:671), and the only limit that

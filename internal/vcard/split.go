@@ -51,6 +51,13 @@ func SplitVCards(data string) []string {
 		}
 	}
 
+	// A card still open at EOF is truncated. Emit it anyway: the caller parses each returned
+	// card and records the failure, whereas dropping it here produced one contact fewer with no
+	// error at all — including on a backup restore that had already deleted the originals.
+	if inCard {
+		cards = append(cards, current.String())
+	}
+
 	return cards
 }
 
