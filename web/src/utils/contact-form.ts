@@ -89,11 +89,19 @@ export function formFromContact(contact: Partial<Contact>): ContactFormData {
     tz: contact.tz || '',
     geo: contact.geo || '',
     emails:
-      contact.emails?.map((e) => ({ value: e.value, type: e.type || '', pref: e.pref ?? 0, label: e.label ?? '' })) ??
-      (contact.email ? [{ value: contact.email, type: '' }] : [{ value: '', type: '' }]),
+      contact.emails?.map((e) => ({
+        value: e.value,
+        type: e.type || '',
+        pref: e.pref ?? 0,
+        label: e.label ?? '',
+      })) ?? (contact.email ? [{ value: contact.email, type: '' }] : [{ value: '', type: '' }]),
     phones:
-      contact.phones?.map((p) => ({ value: p.value, type: p.type || '', pref: p.pref ?? 0, label: p.label ?? '' })) ??
-      (contact.phone ? [{ value: contact.phone, type: '' }] : [{ value: '', type: '' }]),
+      contact.phones?.map((p) => ({
+        value: p.value,
+        type: p.type || '',
+        pref: p.pref ?? 0,
+        label: p.label ?? '',
+      })) ?? (contact.phone ? [{ value: contact.phone, type: '' }] : [{ value: '', type: '' }]),
     urls: contact.urls?.map((u) => ({ value: u.value, type: u.type || '', pref: u.pref ?? 0 })) ?? [],
     ims: contact.ims?.map((im) => ({ value: im.value, type: im.type || '', pref: im.pref ?? 0 })) ?? [],
     addresses:
